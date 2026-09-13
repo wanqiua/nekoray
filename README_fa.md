@@ -1,5 +1,7 @@
 # NekoRay
 
+مخزن پروژه: [wanqiua/nekoray](https://github.com/wanqiua/nekoray) · [مجوز GPL-3.0](LICENSE)
+
 مدیریت پیکربندی پروکسی با رابط کاربری مبتنی بر QT , کراس پلتفرم . (بک اند : v2ray / sing-box )
 
 اکنون از Windows / Linux / macOS amd64 پشتیبانی می کند.
@@ -8,26 +10,16 @@
 
 ### GitHub Releases (Portable ZIP)
 
-فرمت قابل حمل، بدون نصب. برای دانلود باینری های از پیش کامپایل شده به Releases بروید، آنها را باز کرده و از آنها استفاده کنید.
+[Download](https://github.com/wanqiua/nekoray/releases)
 
-[![GitHub All Releases](https://img.shields.io/github/downloads/Matsuridayo/nekoray/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/Matsuridayo/nekoray/releases)
+اگر هنوز نسخه‌ای منتشر نشده است، طبق [راهنمای ساخت](docs/readme.md) پروژه را کامپایل کنید.
 
-[Download](https://github.com/Matsuridayo/nekoray/releases)
+### بسته‌های پروژه بالادستی / Upstream packages
 
-### بسته
-
-1. AUR [nekoray-git](https://aur.archlinux.org/packages/nekoray-git) [![AUR CI](https://github.com/MatsuriDayo/nekoray/actions/workflows/update-pkgbuild.yml/badge.svg)](https://github.com/MatsuriDayo/nekoray/actions/workflows/update-pkgbuild.yaml)
+1. AUR [nekoray-git](https://aur.archlinux.org/packages/nekoray-git)
 2. Scoop Extras: `scoop install nekoray`
 3. Homebrew (unoffical): [homebrew-nekoray](https://github.com/tdjnodj/homebrew-nekoray)
 4. APT (unoffical): [tdjnodj/apt](https://github.com/tdjnodj/apt)
-
-## تغییرات برنامه و کانال تلگرام / Changelog & Telegram Channel
-
-https://t.me/Matsuridayo
-
-## صفحه مستندات / Homepage & Documents
-
-https://matsuridayo.github.io
 
 ## پروکسی / Proxy
 
@@ -67,18 +59,6 @@ https://matsuridayo.github.io
 [Windows](docs/Build_Windows.md)
 
 [macOs](docs/Build_MacOS_fa.md)
-
-## کمک مالی / Donate
-
-از کمک های مالی برای حمایت از توسعه پروژه استقبال می شود。
-
-USDT TRC20
-
-`TRhnA7SXE5Sap5gSG3ijxRmdYFiD4KRhPs`
-
-XMR
-
-`49bwESYQjoRL3xmvTcjZKHEKaiGywjLYVQJMUv79bXonGiyDCs8AzE3KiGW2ytTybBCpWJUvov8SjZZEGg66a4e59GXa6k5`
 
 ## Credits
 

@@ -5,7 +5,7 @@ Tip: Passing the compilation does not mean that all functions are available, and
 ## git clone 源码
 
 ```
-git clone https://github.com/MatsuriDayo/nekoray.git --recursive
+git clone https://github.com/wanqiua/nekoray.git --recursive
 ```
 
 ## 先决条件
@@ -43,7 +43,7 @@ ninja
 
 ## 打包
 
-如有疑问，请参考[这个脚本](https://github.com/MatsuriDayo/nekoray/blob/main/libs/deploy_macos.sh)
+如有疑问，请参考[这个脚本](../libs/deploy_macos.sh)
 
 ### 准备core
 

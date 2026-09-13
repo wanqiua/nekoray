@@ -1,5 +1,7 @@
 # NekoRay / PC 用 NekoBox
 
+リポジトリ: [wanqiua/nekoray](https://github.com/wanqiua/nekoray) · [GPL-3.0 ライセンス](LICENSE)
+
 QtベースのクロスプラットフォームGUIプロキシ設定マネージャ (バックエンド：v2ray / sing-box)
 
 Windows / Linuxに対応。
@@ -8,20 +10,18 @@ Windows / Linuxに対応。
 
 ### GitHub Releases (Portable ZIP)
 
-Portable 形式、インストーラーなし。Releases からコンパイル済みバイナリをダウンロードし、解凍してお使いください。
+[ダウンロード](https://github.com/wanqiua/nekoray/releases)
 
-[![GitHub All Releases](https://img.shields.io/github/downloads/Matsuridayo/nekoray/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/Matsuridayo/nekoray/releases)
+リリースがまだない場合は、[ビルド手順](docs/readme.md)に従ってビルドしてください。
 
-[ダウンロード](https://github.com/Matsuridayo/nekoray/releases)
+[Portable 版の使い方](docs/Portable_Windows.md)
 
-[ダウンロードするパッケージがわからない場合のインストール方法](https://github.com/MatsuriDayo/nekoray/wiki/Installation-package-description)
-
-### Package
+### 上流プロジェクトのパッケージ / Upstream packages
 
 #### AUR
 
 - [nekoray](https://aur.archlinux.org/packages/nekoray)
-- [nekoray-git](https://aur.archlinux.org/packages/nekoray-git) [![AUR CI](https://github.com/MatsuriDayo/nekoray/actions/workflows/update-pkgbuild.yml/badge.svg)](https://github.com/MatsuriDayo/nekoray/actions/workflows/update-pkgbuild.yaml)
+- [nekoray-git](https://aur.archlinux.org/packages/nekoray-git)
 
 #### archlinuxcn
 
@@ -31,14 +31,6 @@ Portable 形式、インストーラーなし。Releases からコンパイル�
 #### Scoop Extras
 
 `scoop install nekoray`
-
-## Changelog と Telegram チャンネル
-
-https://t.me/Matsuridayo
-
-## ホームページとドキュメント
-
-https://matsuridayo.github.io
 
 ## プロキシ
 
@@ -82,23 +74,7 @@ DLL が見つからない場合は、[Microsoft C++ ランタイムライブラ�
 
 ## コンパイルチュートリアル
 
-[技術ドキュメント](https://github.com/MatsuriDayo/nekoray/tree/main/docs)を参照して下さい
-
-## 寄付
-
-このプロジェクトがあなたのお役に立つのであれば、寄付をすることでプロジェクトの継続を支援することができます。
-
-50US ドル以上の寄付をされた方は、[寄付リスト](https://mtrdnt.pages.dev/donation_list)にアバターを表示することができます。ここに追加されていない場合は、ご連絡ください。
-
-USDT TRC20
-
-`TRhnA7SXE5Sap5gSG3ijxRmdYFiD4KRhPs`
-
-XMR
-
-`49bwESYQjoRL3xmvTcjZKHEKaiGywjLYVQJMUv79bXonGiyDCs8AzE3KiGW2ytTybBCpWJUvov8SjZZEGg66a4e59GXa6k5`
-
-- また、[Google Play](https://play.google.com/store/apps/details?id=moe.nb4a) からも寄付金を購入することができます。アリペイと WeChat の購入オプションもありますので、TG チャンネルのトップをご覧ください。
+[技術ドキュメント](docs/readme.md)を参照して下さい
 
 ## クレジット
 

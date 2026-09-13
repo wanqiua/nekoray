@@ -1,10 +1,10 @@
 # NekoRay / NekoBox For PC
 
-本仓库是 [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray) 的二次开发版本，沿用 [GPL-3.0 许可证](LICENSE)。
+项目仓库：[wanqiua/nekoray](https://github.com/wanqiua/nekoray)。本项目基于 NekoRay 二次开发，沿用 [GPL-3.0 许可证](LICENSE)。
 
-本分支基于 **3.26** 保留双内核，使用 **Matsuri Xray v1.8.4 兼容版 / sing-box v1.14.0**。Xray 保留 `rc4-md5` 和 `allowInsecure` 支持。参见 [兼容说明](docs/Core_Upgrade.md) 和 [内核构建教程](docs/Build_Core.md)。下方上游下载链接不包含本分支的改动。
+本分支基于 **3.26** 保留双内核，使用 **Matsuri Xray v1.8.4 兼容版 / sing-box v1.14.0**。Xray 保留 `rc4-md5` 和 `allowInsecure` 支持。参见 [兼容说明](docs/Core_Upgrade.md) 和 [内核构建教程](docs/Build_Core.md)。
 
-批量 URL 测试的并发与结果回写、分组右键菜单和链接导入窗口已完成修改。本地 Windows x64 便携包及对应源码包输出到 `deployment/packages/`，使用方法见[便携版说明](docs/Portable_Windows.md)，自行构建见 [Windows 构建教程](docs/Build_Windows.md)。本分支的包未发布到上游 Releases。
+批量 URL 测试的并发与结果回写、分组右键菜单和链接导入窗口已完成修改。本地 Windows x64 便携包及对应源码包输出到 `deployment/packages/`，使用方法见[便携版说明](docs/Portable_Windows.md)，自行构建见 [Windows 构建教程](docs/Build_Windows.md)。
 
 Qt based cross-platform GUI proxy configuration manager (backend: v2ray / sing-box)
 
@@ -27,24 +27,22 @@ GUI 和内核构建方法见 [Windows 构建教程](docs/Build_Windows.md) 与 [
 
 中文 / English / [fa_IR](README_fa.md) / [日本語](README_ja.md)
 
-## 上游下载 / Upstream downloads
+## 下载 / Download
 
 ### GitHub Releases (Portable ZIP)
 
-便携格式，无安装器。转到 Releases 下载预编译的二进制文件，解压后即可使用。
+[下载 / Download](https://github.com/wanqiua/nekoray/releases)
 
-[![GitHub All Releases](https://img.shields.io/github/downloads/Matsuridayo/nekoray/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/Matsuridayo/nekoray/releases)
+如果 Releases 中暂无发布版本，请参照[构建教程](docs/readme.md)自行编译。
 
-[下载 / Download](https://github.com/Matsuridayo/nekoray/releases)
+[便携版使用说明](docs/Portable_Windows.md)
 
-[安装包的说明，如果你不知道要下载哪一个](https://github.com/MatsuriDayo/nekoray/wiki/Installation-package-description)
-
-### Package
+### 上游项目的第三方包 / Upstream packages
 
 #### AUR
 
 - [nekoray](https://aur.archlinux.org/packages/nekoray)
-- [nekoray-git](https://aur.archlinux.org/packages/nekoray-git) [![AUR CI](https://github.com/MatsuriDayo/nekoray/actions/workflows/update-pkgbuild.yml/badge.svg)](https://github.com/MatsuriDayo/nekoray/actions/workflows/update-pkgbuild.yaml)
+- [nekoray-git](https://aur.archlinux.org/packages/nekoray-git)
 
 #### archlinuxcn
 
@@ -54,14 +52,6 @@ GUI 和内核构建方法见 [Windows 构建教程](docs/Build_Windows.md) 与 [
 #### Scoop Extras
 
 `scoop install nekoray`
-
-## 更改记录 & 发布频道 / Changelog & Telegram Channel
-
-https://t.me/Matsuridayo
-
-## 项目主页 & 文档 / Homepage & Documents
-
-https://matsuridayo.github.io
 
 ## 代理 / Proxy
 
@@ -107,25 +97,6 @@ https://matsuridayo.github.io
 ## 编译教程 / Compile Tutorial
 
 请看 [技术文档 / Technical documentation](docs/readme.md)
-
-## 上游捐助 / Support upstream
-
-如果这个项目对您有帮助，可以通过捐赠的方式帮助我们维持这个项目。
-
-捐赠满等额 50 USD 可以在「[捐赠榜](https://mtrdnt.pages.dev/donation_list)」显示头像，如果您未被添加到这里，欢迎联系我们补充。
-
-Donations of 50 USD or more can display your avatar on the [Donation List](https://mtrdnt.pages.dev/donation_list). If you are not added here, please contact us to add it.
-
-USDT TRC20
-
-`TRhnA7SXE5Sap5gSG3ijxRmdYFiD4KRhPs`
-
-XMR
-
-`49bwESYQjoRL3xmvTcjZKHEKaiGywjLYVQJMUv79bXonGiyDCs8AzE3KiGW2ytTybBCpWJUvov8SjZZEGg66a4e59GXa6k5`
-
-- 您也可以通过 [Google Play](https://play.google.com/store/apps/details?id=moe.nb4a) 购买捐赠，另有支付宝微信购买方式，见 TG 频道置顶。
-- Donating via [Google Play](https://play.google.com/store/apps/details?id=moe.nb4a), using credit cards.
 
 ## Credits
 
