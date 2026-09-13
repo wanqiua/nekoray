@@ -16,6 +16,8 @@ namespace NekoGui_traffic {
 
     TrafficData *TrafficLooper::update_stats(TrafficData *item) {
 #ifndef NKR_NO_GRPC
+        auto selectedClient = item == bypass && direct_client ? direct_client : client;
+        if (!selectedClient) return nullptr;
         // last update
         auto now = elapsedTimer.elapsed();
         auto interval = now - item->last_update;
@@ -23,8 +25,8 @@ namespace NekoGui_traffic {
         if (interval <= 0) return nullptr;
 
         // query
-        auto uplink = NekoGui_rpc::defaultClient->QueryStats(item->tag, "uplink");
-        auto downlink = NekoGui_rpc::defaultClient->QueryStats(item->tag, "downlink");
+        auto uplink = selectedClient->QueryStats(item->tag, "uplink");
+        auto downlink = selectedClient->QueryStats(item->tag, "downlink");
 
         // add diff
         item->downlink += downlink;
@@ -45,7 +47,8 @@ namespace NekoGui_traffic {
 
     QJsonArray TrafficLooper::get_connection_list() {
 #ifndef NKR_NO_GRPC
-        auto str = NekoGui_rpc::defaultClient->ListConnections();
+        if (!client) return {};
+        auto str = client->ListConnections();
         QJsonDocument jsonDocument = QJsonDocument::fromJson(str.c_str());
         return jsonDocument.array();
 #else
@@ -78,7 +81,7 @@ namespace NekoGui_traffic {
 
     void TrafficLooper::Loop() {
         elapsedTimer.start();
-        while (true) {
+        while (!NekoGui::dataStore->prepare_exit) {
             auto sleep_ms = NekoGui::dataStore->traffic_loop_interval;
             if (sleep_ms < 500 || sleep_ms > 5000) sleep_ms = 1000;
             QThread::msleep(sleep_ms);
@@ -105,6 +108,9 @@ namespace NekoGui_traffic {
             // do update
             loop_mutex.lock();
 
+            if (!loop_enabled) { loop_mutex.unlock(); continue; }
+            const auto snapshotGeneration = generation.load();
+
             UpdateAll();
 
             // do conn list update
@@ -113,18 +119,17 @@ namespace NekoGui_traffic {
                 conn_list = get_connection_list();
             }
 
+            const QString speed = proxy ? QObject::tr("Proxy: %1\nDirect: %2").arg(proxy->DisplaySpeed(), bypass->DisplaySpeed()) : QString();
+            QList<int> profileIds;
+            for (const auto &item : items) if (item->id >= 0) profileIds.append(item->id);
             loop_mutex.unlock();
 
             // post to UI
             runOnUiThread([=] {
+                if (generation.load() != snapshotGeneration || !loop_enabled || NekoGui::dataStore->prepare_exit) return;
                 auto m = GetMainWindow();
-                if (proxy != nullptr) {
-                    m->refresh_status(QObject::tr("Proxy: %1\nDirect: %2").arg(proxy->DisplaySpeed(), bypass->DisplaySpeed()));
-                }
-                for (const auto &item: items) {
-                    if (item->id < 0) continue;
-                    m->refresh_proxy_list(item->id);
-                }
+                if (!speed.isEmpty()) m->refresh_status(speed);
+                for (int id : profileIds) m->refresh_proxy_list(id);
                 if (NekoGui::dataStore->connection_statistics) {
                     m->refresh_connection_list(conn_list);
                 }

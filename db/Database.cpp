@@ -5,6 +5,8 @@
 #include <QFile>
 #include <QDir>
 #include <QColor>
+#include <QDateTime>
+#include <QJsonDocument>
 
 namespace NekoGui {
 
@@ -209,12 +211,24 @@ namespace NekoGui {
 
     ProxyEntity::ProxyEntity(NekoGui_fmt::AbstractBean *bean, const QString &type_) {
         if (type_ != nullptr) this->type = type_;
+        // Fresh entities have no legacy measurement. FromJson replaces this
+        // marker from the stored field before migrating an older profile.
+        test_results.insert("legacy_migrated", true);
 
         _add(new configItem("type", &type, itemType::string));
         _add(new configItem("id", &id, itemType::integer));
         _add(new configItem("gid", &gid, itemType::integer));
         _add(new configItem("yc", &latency, itemType::integer));
+        _add(new configItem("core_preference", &core_preference, itemType::integer));
+        _add(new configItem("test_results", &test_results_json, itemType::string));
         _add(new configItem("report", &full_test_report, itemType::string));
+
+        callback_after_load = [this] {
+            if (core_preference < 0 || core_preference > 2) core_preference = 0;
+            test_results = QJsonDocument::fromJson(test_results_json.toUtf8()).object();
+            MigrateLegacyTestResult();
+        };
+        callback_before_save = [this] { SyncTestResults(); };
 
         // 可以不关联 bean，只加载 ProxyEntity 的信息
         if (bean != nullptr) {
@@ -224,6 +238,75 @@ namespace NekoGui {
             _add(new configItem("traffic", dynamic_cast<JsonStore *>(traffic_data.get()), itemType::jsonStore));
         }
     };
+
+    namespace {
+        QString TestResultKey(int core, const QString &scope, const QString &mode) {
+            return QString::number(core) + ":" + scope + ":" + mode;
+        }
+
+        void AppendTestHistory(QJsonObject &results, const QJsonObject &result) {
+            auto history = results.value("history").toArray();
+            history.append(result);
+            // Bounded local history; no raw generated configuration is stored.
+            while (history.size() > 32) history.removeAt(0);
+            results.insert("history", history);
+        }
+    }
+
+    void ProxyEntity::SyncTestResults() {
+        test_results_json = QString::fromUtf8(QJsonDocument(test_results).toJson(QJsonDocument::Compact));
+    }
+
+    void ProxyEntity::MigrateLegacyTestResult() {
+        if (test_results.value("legacy_migrated").toBool()) return;
+        if (latency != 0 || !full_test_report.isEmpty()) {
+            ProfileTestResult legacy;
+            legacy.status = TestResultStatus::Legacy;
+            legacy.core = -1;
+            legacy.scope = "legacy";
+            legacy.latency_ms = latency;
+            legacy.error = full_test_report;
+            // Unknown original time/build/config: never invent valid provenance.
+            AppendTestHistory(test_results, legacy.ToJson());
+            latency = 0;
+            full_test_report.clear();
+        }
+        test_results.insert("legacy_migrated", true);
+        SyncTestResults();
+    }
+
+    void ProxyEntity::RecordTestResult(const ProfileTestResult &input) {
+        MigrateLegacyTestResult();
+        auto result = input;
+        if (result.timestamp_ms <= 0) result.timestamp_ms = QDateTime::currentMSecsSinceEpoch();
+        const auto object = result.ToJson();
+        AppendTestHistory(test_results, object);
+        // Cancellation/late replies are history, and must not erase a completed
+        // result. The caller still decides whether its process generation is live.
+        if (result.status != TestResultStatus::Cancelled && result.status != TestResultStatus::Stale &&
+            result.status != TestResultStatus::Legacy && (result.core == 0 || result.core == 1)) {
+            auto latest = test_results.value("latest").toObject();
+            latest.insert(TestResultKey(result.core, result.scope, result.mode), object);
+            test_results.insert("latest", latest);
+        }
+        SyncTestResults();
+    }
+
+    ProfileTestResult ProxyEntity::LastTestResult(int core, const QString &scope, const QString &mode) const {
+        return ProfileTestResult::FromJson(test_results.value("latest").toObject()
+                                              .value(TestResultKey(core, scope, mode)).toObject());
+    }
+
+    bool ProxyEntity::HasValidTestResult(int core, const QString &buildId, const QString &fingerprint,
+                                       const QString &scope, const QString &mode) const {
+        return LastTestResult(core, scope, mode).Matches(core, buildId, fingerprint, scope, mode);
+    }
+
+    bool ProxyEntity::IsRemovalCandidate(int core, const QString &buildId, const QString &fingerprint,
+                                        const QString &mode) const {
+        return HasValidTestResult(core, buildId, fingerprint, "next", mode) &&
+               LastTestResult(core, "next", mode).status == TestResultStatus::ConnectionFailure;
+    }
 
     QString ProxyEntity::DisplayLatency() const {
         if (latency < 0) {

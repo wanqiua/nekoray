@@ -4,7 +4,9 @@
 #define JS_STRICT_NAN_BOXING
 #endif
 
+#ifndef NKR_NO_QUICKJS
 #include "3rdparty/qjs/nekoray_qjs.h"
+#endif
 #include "main/NekoGui.hpp"
 
 namespace qjs {

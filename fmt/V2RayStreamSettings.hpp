@@ -49,9 +49,9 @@ namespace NekoGui_fmt {
             _add(new configItem("mux_s", &multiplex_status, itemType::integer));
         }
 
-        QJsonObject BuildStreamSettingsV2Ray();
+        QJsonObject BuildStreamSettingsV2Ray(const NekoGui::DataStore *runtimeSettings = nullptr);
 
-        void BuildStreamSettingsSingBox(QJsonObject *outbound);
+        void BuildStreamSettingsSingBox(QJsonObject *outbound, const NekoGui::DataStore *runtimeSettings = nullptr);
     };
 
     inline V2rayStreamSettings *GetStreamSettings(AbstractBean *bean) {

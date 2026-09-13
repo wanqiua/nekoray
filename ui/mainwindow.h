@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <atomic>
 
 #include "main/NekoGui.hpp"
 
@@ -25,7 +26,18 @@
 
 namespace NekoGui_sys {
     class CoreProcess;
+    class CoreManager;
 }
+
+namespace NekoGui {
+    struct RunningCoreSession;
+    struct CoreSwitchIntent;
+    struct ProfileTestResult;
+}
+class QButtonGroup;
+class QPushButton;
+class QLabel;
+namespace NekoGui_rpc { class Client; }
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -67,6 +79,10 @@ public:
 
     bool StopVPNProcess(bool unconditional = false);
 
+    void set_core_preference(int profileId, int preference, bool applyToRunning = false);
+
+    int active_core() const;
+
 signals:
 
     void profile_selected(int id);
@@ -80,6 +96,8 @@ public slots:
 #ifndef MW_INTERFACE
 
 private slots:
+
+    void show_group_context_menu(const QPoint &pos);
 
     void on_masterLogBrowser_customContextMenuRequested(const QPoint &pos);
 
@@ -136,13 +154,22 @@ private slots:
     void on_tabWidget_currentChanged(int index);
 
 private:
+    friend class GuiRegressionTest;
     Ui::MainWindow *ui;
     QSystemTrayIcon *tray;
     QShortcut *shortcut_ctrl_f = new QShortcut(QKeySequence("Ctrl+F"), this);
     QShortcut *shortcut_esc = new QShortcut(QKeySequence("Esc"), this);
     //
-    NekoGui_sys::CoreProcess *core_process;
+    NekoGui_sys::CoreManager *core_manager = nullptr;
     qint64 vpn_pid = 0;
+    void *vpn_handle = nullptr;
+    QProcess *vpn_process = nullptr;
+    bool vpn_changing = false;
+    QString vpn_config_fingerprint;
+    int tun_proxy_port = 0;
+#ifndef NKR_NO_GRPC
+    std::shared_ptr<NekoGui_rpc::Client> vpn_client;
+#endif
     //
     bool qvLogAutoScoll = true;
     QTextDocument *qvLogDocument = new QTextDocument(this);
@@ -160,6 +187,31 @@ private:
     QMutex mu_exit;
     QSemaphore sem_stopped;
     int exit_reason = 0;
+
+    std::shared_ptr<NekoGui::RunningCoreSession> core_session;
+    std::shared_ptr<NekoGui::CoreSwitchIntent> pending_core_intent;
+    std::shared_ptr<NekoGui::CoreSwitchIntent> active_core_intent;
+    bool core_switch_busy = false;
+    std::atomic<quint64> core_intent_sequence{0};
+    QHash<int, quint64> preference_revisions;
+    QButtonGroup *core_buttons = nullptr;
+    QLabel *core_selected_label = nullptr;
+    QLabel *core_choice_reason = nullptr;
+    QString core_notice;
+    int last_crashed_core = -1;
+    QTime last_core_crash;
+
+    void setup_core_controls();
+    void refresh_core_controls();
+    void queue_core_start(const std::shared_ptr<NekoGui::ProxyEntity> &profile, int rollbackPreference = -1, bool prepareForTun = false);
+    void process_core_intent();
+    void core_notice_message(const QString &message);
+    void refresh_test_validity(const std::shared_ptr<NekoGui::ProxyEntity> &profile);
+    QString test_fingerprint(const std::shared_ptr<NekoGui::ProxyEntity> &profile, int core, int mode = 1,
+                             const QJsonObject &parameters = {});
+    NekoGui::ProfileTestResult current_test_result(const std::shared_ptr<NekoGui::ProxyEntity> &profile);
+    QString test_result_text(const std::shared_ptr<NekoGui::ProxyEntity> &profile);
+    QString test_result_details(const std::shared_ptr<NekoGui::ProxyEntity> &profile);
 
     QList<std::shared_ptr<NekoGui::ProxyEntity>> get_now_selected_list();
 
@@ -180,16 +232,18 @@ private:
     void HotkeyEvent(const QString &key);
 
     bool StartVPNProcess();
+    void reload_tun_settings();
+    void tun_bridge_prepared(bool succeeded, bool cancelled = false);
 
     // grpc and ...
 
-    static void setup_grpc();
+    void setup_grpc();
 
-    void speedtest_current_group(int mode);
+    void speedtest_current_group(int mode, int coreOverride = -1, bool compare = false);
 
     void speedtest_current();
 
-    static void stop_core_daemon();
+    void stop_core_daemon();
 
     void CheckUpdate();
 

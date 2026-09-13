@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"grpc_server/gen"
+	"grpc_server/probe"
 	"io"
-	"log"
 	"math"
 	"net"
 	"net/http"
@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/matsuridayo/libneko/neko_common"
-	"github.com/matsuridayo/libneko/speedtest"
 )
 
 const (
@@ -22,47 +21,67 @@ const (
 	MiB = 1024 * KiB
 )
 
+type fullTestResult struct {
+	value string
+	err   error
+}
+
 func getBetweenStr(str, start, end string) string {
-	n := strings.Index(str, start)
-	if n == -1 {
-		n = 0
+	_, remainder, found := strings.Cut(str, start)
+	if !found {
+		return ""
 	}
-	str = string([]byte(str)[n:])
-	m := strings.Index(str, end)
-	if m == -1 {
-		m = len(str)
-	}
-	str = string([]byte(str)[:m])
-	return str[len(start):]
+	value, _, _ := strings.Cut(remainder, end)
+	return value
 }
 
 func DoFullTest(ctx context.Context, in *gen.TestReq, instance interface{}) (out *gen.TestResp, _ error) {
 	out = &gen.TestResp{}
+	recordFailure := func(err error) {
+		if err != nil && (out.Error == "" || ctx.Err() != nil) {
+			SetTestError(out, err, RemoteFailure(ctx, err))
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		recordFailure(err)
+		return
+	}
+	if !in.FullLatency && !in.FullUdpLatency && !in.FullSpeed && !in.FullInOut {
+		recordFailure(&probe.ConfigError{Message: "no full test options selected"})
+		return
+	}
 	httpClient := neko_common.CreateProxyHttpClient(instance)
+	defer httpClient.CloseIdleConnections()
 
 	// Latency
 	var latency string
 	if in.FullLatency {
-		t, _ := speedtest.UrlTest(httpClient, in.Url, in.Timeout)
+		t, err := probe.URL(ctx, httpClient, in.Url, in.Timeout)
 		out.Ms = t
-		if t > 0 {
+		if err == nil {
 			latency = fmt.Sprint(t, "ms")
 		} else {
-			latency = "Error"
+			SetTestError(out, err, RemoteFailure(ctx, err))
+			latency = "Error: " + err.Error()
 		}
 	}
 
 	// UDP Latency
 	var udpLatency string
-	if in.FullUdpLatency {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
-		result := make(chan string)
+	if in.FullUdpLatency && ctx.Err() == nil {
+		requestContext, cancel := context.WithTimeout(ctx, time.Second*3)
+		result := make(chan fullTestResult, 1)
 
 		go func() {
 			var startTime = time.Now()
-			pc, err := neko_common.DialContext(ctx, instance, "udp", "8.8.8.8:53")
+			pc, err := neko_common.DialContext(requestContext, instance, "udp", "8.8.8.8:53")
 			if err == nil {
 				defer pc.Close()
+				stopClose := context.AfterFunc(requestContext, func() { pc.Close() })
+				defer stopClose()
+				if deadline, ok := requestContext.Deadline(); ok {
+					pc.SetDeadline(deadline)
+				}
 				dnsPacket, _ := hex.DecodeString("0000010000010000000000000377777706676f6f676c6503636f6d0000010001")
 				_, err = pc.Write(dnsPacket)
 				if err == nil {
@@ -72,89 +91,104 @@ func DoFullTest(ctx context.Context, in *gen.TestReq, instance interface{}) (out
 			}
 			if err == nil {
 				var endTime = time.Now()
-				result <- fmt.Sprint(endTime.Sub(startTime).Abs().Milliseconds(), "ms")
+				result <- fullTestResult{value: fmt.Sprint(endTime.Sub(startTime).Abs().Milliseconds(), "ms")}
 			} else {
-				log.Println("UDP Latency test error:", err)
-				result <- "Error"
+				result <- fullTestResult{value: "Error", err: err}
 			}
 			close(result)
 		}()
 
 		select {
-		case <-ctx.Done():
+		case <-requestContext.Done():
 			udpLatency = "Timeout"
+			recordFailure(requestContext.Err())
 		case r := <-result:
-			udpLatency = r
+			udpLatency = r.value
+			recordFailure(r.err)
 		}
 		cancel()
 	}
 
 	// 入口 IP
 	var in_ip string
-	if in.FullInOut {
-		_in_ip, err := net.ResolveIPAddr("ip", in.InAddress)
-		if err == nil {
-			in_ip = _in_ip.String()
+	if in.FullInOut && ctx.Err() == nil {
+		requestContext, cancel := context.WithTimeout(ctx, probe.DefaultTimeout)
+		addresses, err := net.DefaultResolver.LookupIPAddr(requestContext, in.InAddress)
+		if err == nil && len(addresses) != 0 {
+			in_ip = addresses[0].String()
 		} else {
-			in_ip = err.Error()
+			in_ip = "Error"
+			recordFailure(err)
 		}
+		cancel()
 	}
 
 	// 出口 IP
 	var out_ip string
-	if in.FullInOut {
-		resp, err := httpClient.Get("https://www.cloudflare.com/cdn-cgi/trace")
+	if in.FullInOut && ctx.Err() == nil {
+		requestContext, cancel := context.WithTimeout(ctx, probe.DefaultTimeout)
+		request, _ := http.NewRequestWithContext(requestContext, http.MethodGet, "https://www.cloudflare.com/cdn-cgi/trace", nil)
+		resp, err := httpClient.Do(request)
 		if err == nil {
-			b, _ := io.ReadAll(resp.Body)
+			b, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 			out_ip = getBetweenStr(string(b), "ip=", "\n")
+			recordFailure(readErr)
 			resp.Body.Close()
 		} else {
 			out_ip = "Error"
+			recordFailure(err)
 		}
+		cancel()
 	}
 
 	// 下载
 	var speed string
-	if in.FullSpeed {
-		if in.FullSpeedTimeout <= 0 {
-			in.FullSpeedTimeout = 30
+	if in.FullSpeed && ctx.Err() == nil {
+		timeout := in.FullSpeedTimeout
+		if timeout <= 0 {
+			timeout = 30
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(in.FullSpeedTimeout))
-		result := make(chan string)
-		var bodyClose io.Closer
+		requestContext, cancel := context.WithTimeout(ctx, time.Second*time.Duration(timeout))
+		result := make(chan fullTestResult, 1)
 
 		go func() {
-			req, _ := http.NewRequestWithContext(ctx, "GET", in.FullSpeedUrl, nil)
+			req, err := http.NewRequestWithContext(requestContext, "GET", in.FullSpeedUrl, nil)
+			if err != nil || req.URL.Host == "" || (req.URL.Scheme != "http" && req.URL.Scheme != "https") {
+				result <- fullTestResult{value: "Error", err: &probe.ConfigError{Message: "speed test URL must start with http:// or https://"}}
+				return
+			}
 			resp, err := httpClient.Do(req)
 			if err == nil && resp != nil && resp.Body != nil {
-				bodyClose = resp.Body
 				defer resp.Body.Close()
+				if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+					result <- fullTestResult{value: "Error", err: fmt.Errorf("speed test endpoint returned HTTP %d", resp.StatusCode)}
+					return
+				}
 
 				timeStart := time.Now()
-				n, _ := io.Copy(io.Discard, resp.Body)
+				n, readErr := io.Copy(io.Discard, resp.Body)
 				timeEnd := time.Now()
 
 				duration := math.Max(timeEnd.Sub(timeStart).Seconds(), 0.000001)
 				resultSpeed := (float64(n) / duration) / MiB
-				result <- fmt.Sprintf("%.2fMiB/s", resultSpeed)
+				result <- fullTestResult{value: fmt.Sprintf("%.2fMiB/s", resultSpeed), err: readErr}
 			} else {
-				result <- "Error"
+				result <- fullTestResult{value: "Error", err: err}
 			}
 			close(result)
 		}()
 
 		select {
-		case <-ctx.Done():
+		case <-requestContext.Done():
 			speed = "Timeout"
+			recordFailure(requestContext.Err())
 		case s := <-result:
-			speed = s
+			speed = s.value
+			recordFailure(s.err)
 		}
 
 		cancel()
-		if bodyClose != nil {
-			bodyClose.Close()
-		}
 	}
 
 	fr := make([]string, 0)
@@ -175,6 +209,7 @@ func DoFullTest(ctx context.Context, in *gen.TestReq, instance interface{}) (out
 	}
 
 	out.FullReport = strings.Join(fr, " / ")
+	recordFailure(ctx.Err())
 
 	return
 }

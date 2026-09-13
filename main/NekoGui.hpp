@@ -10,6 +10,11 @@
 namespace NekoGui {
     inline int coreType = CoreType::V2RAY;
 
+    inline int PreferredCore() {
+        return dataStore->preferred_core == CoreType::V2RAY || dataStore->preferred_core == CoreType::SING_BOX
+                   ? dataStore->preferred_core : coreType;
+    }
+
     QString FindCoreAsset(const QString &name);
 
     QString FindNekoBoxCoreRealPath();

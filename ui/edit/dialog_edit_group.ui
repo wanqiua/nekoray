@@ -43,18 +43,25 @@
        </widget>
       </item>
       <item row="1" column="1">
-       <widget class="QComboBox" name="type">
+       <layout class="QHBoxLayout" name="type_layout">
         <item>
-         <property name="text">
-          <string>Basic</string>
-         </property>
+         <widget class="QRadioButton" name="type_basic">
+          <property name="text">
+           <string>Basic</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
         </item>
         <item>
-         <property name="text">
-          <string>Subscription</string>
-         </property>
+         <widget class="QRadioButton" name="type_subscription">
+          <property name="text">
+           <string>Subscription</string>
+          </property>
+         </widget>
         </item>
-       </widget>
+       </layout>
       </item>
       <item row="2" column="0">
        <widget class="QLabel" name="front_proxy_l">
@@ -182,7 +189,8 @@
  </customwidgets>
  <tabstops>
   <tabstop>name</tabstop>
-  <tabstop>type</tabstop>
+  <tabstop>type_basic</tabstop>
+  <tabstop>type_subscription</tabstop>
   <tabstop>front_proxy</tabstop>
   <tabstop>front_proxy_clear</tabstop>
   <tabstop>manually_column_width</tabstop>

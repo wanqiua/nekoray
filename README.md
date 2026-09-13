@@ -1,5 +1,11 @@
 # NekoRay / NekoBox For PC
 
+本仓库是 [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray) 的二次开发版本，沿用 [GPL-3.0 许可证](LICENSE)。
+
+本分支基于 **3.26** 保留双内核，使用 **Matsuri Xray v1.8.4 兼容版 / sing-box v1.14.0**。Xray 保留 `rc4-md5` 和 `allowInsecure` 支持。参见 [兼容说明](docs/Core_Upgrade.md) 和 [内核构建教程](docs/Build_Core.md)。下方上游下载链接不包含本分支的改动。
+
+批量 URL 测试的并发与结果回写、分组右键菜单和链接导入窗口已完成修改。本地 Windows x64 便携包及对应源码包输出到 `deployment/packages/`，使用方法见[便携版说明](docs/Portable_Windows.md)，自行构建见 [Windows 构建教程](docs/Build_Windows.md)。本分支的包未发布到上游 Releases。
+
 Qt based cross-platform GUI proxy configuration manager (backend: v2ray / sing-box)
 
 Support Windows / Linux out of the box now.
@@ -8,11 +14,20 @@ Support Windows / Linux out of the box now.
 
 目前支持 Windows / Linux 开箱即用
 
+## 获取二开源码
+
+```sh
+git clone --recurse-submodules https://github.com/wanqiua/nekoray.git
+cd nekoray
+```
+
+GUI 和内核构建方法见 [Windows 构建教程](docs/Build_Windows.md) 与 [内核构建教程](docs/Build_Core.md)。
+
 ## Readme Translations
 
 中文 / English / [fa_IR](README_fa.md) / [日本語](README_ja.md)
 
-## 下载 / Download
+## 上游下载 / Upstream downloads
 
 ### GitHub Releases (Portable ZIP)
 
@@ -91,9 +106,9 @@ https://matsuridayo.github.io
 
 ## 编译教程 / Compile Tutorial
 
-请看 [技术文档 / Technical documentation](https://github.com/MatsuriDayo/nekoray/tree/main/docs)
+请看 [技术文档 / Technical documentation](docs/readme.md)
 
-## 捐助 / Donate
+## 上游捐助 / Support upstream
 
 如果这个项目对您有帮助，可以通过捐赠的方式帮助我们维持这个项目。
 

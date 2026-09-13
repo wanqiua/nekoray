@@ -47,12 +47,12 @@ namespace NekoGui_fmt {
             return AbstractBean::DisplayAddress();
         };
 
-        int NeedExternal(bool isFirstProfile) override;
+        int NeedExternal(bool isFirstProfile, int targetCore = -1, const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
-        ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat) override;
+        ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat, const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
-        CoreObjOutboundBuildResult BuildCoreObjSingBox() override;
+        CoreObjOutboundBuildResult BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
-        CoreObjOutboundBuildResult BuildCoreObjV2Ray() override;
+        CoreObjOutboundBuildResult BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings = nullptr) override;
     };
 } // namespace NekoGui_fmt

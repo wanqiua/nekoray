@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"grpc_server/probe"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"time"
+	"sync"
 
 	"github.com/matsuridayo/libneko/neko_common"
 	"github.com/matsuridayo/libneko/neko_log"
@@ -20,6 +21,14 @@ import (
 )
 
 var instance *NekoV2RayInstance
+var instanceMu sync.RWMutex
+
+func currentInstance() *NekoV2RayInstance {
+	instanceMu.RLock()
+	defer instanceMu.RUnlock()
+	return instance
+}
+
 var getNekorayTunIndex = func() int { return 0 } // Windows only
 var underlyingNetDialer *net.Dialer
 
@@ -68,7 +77,7 @@ func setupCore() {
 		return resolver_go.LookupIP(context.Background(), "ip", host)
 	}
 	neko_common.GetCurrentInstance = func() interface{} {
-		return instance
+		return currentInstance()
 	}
 	neko_common.DialContext = func(ctx context.Context, specifiedInstance interface{}, network, addr string) (net.Conn, error) {
 		dest, err := v2rayNet.ParseDestination(fmt.Sprintf("%s:%s", network, addr))
@@ -78,8 +87,8 @@ func setupCore() {
 		if i, ok := specifiedInstance.(*NekoV2RayInstance); ok {
 			return core.Dial(ctx, i.Instance, dest)
 		}
-		if instance != nil {
-			return core.Dial(ctx, instance.Instance, dest)
+		if active := currentInstance(); active != nil {
+			return core.Dial(ctx, active.Instance, dest)
 		}
 		return neko_common.DialContextSystem(ctx, network, addr)
 	}
@@ -87,8 +96,8 @@ func setupCore() {
 		if i, ok := specifiedInstance.(*NekoV2RayInstance); ok {
 			return core.DialUDP(ctx, i.Instance)
 		}
-		if instance != nil {
-			return core.DialUDP(ctx, instance.Instance)
+		if active := currentInstance(); active != nil {
+			return core.DialUDP(ctx, active.Instance)
 		}
 		return neko_common.DialUDPSystem(ctx)
 	}
@@ -96,27 +105,21 @@ func setupCore() {
 		if i, ok := specifiedInstance.(*NekoV2RayInstance); ok {
 			return createProxyHttpClient(i)
 		}
-		return createProxyHttpClient(instance)
+		return createProxyHttpClient(currentInstance())
 	}
 }
 
 // PROXY
 
 func createProxyHttpClient(i *NekoV2RayInstance) *http.Client {
-	transport := &http.Transport{
-		TLSHandshakeTimeout:   time.Second * 3,
-		ResponseHeaderTimeout: time.Second * 3,
+	if i == nil {
+		return probe.NewHTTPClient(nil)
 	}
-
-	if i != nil {
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return neko_common.DialContext(ctx, i, network, addr)
+	return probe.NewHTTPClient(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		dest, err := v2rayNet.ParseDestination(fmt.Sprintf("%s:%s", network, addr))
+		if err != nil {
+			return nil, err
 		}
-	}
-
-	client := &http.Client{
-		Transport: transport,
-	}
-
-	return client
+		return core.Dial(ctx, i.Instance, dest)
+	})
 }

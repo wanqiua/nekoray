@@ -15,10 +15,19 @@
 
 #include "3rdparty/qv2ray/v2/ui/widgets/editors/w_JsonEditor.hpp"
 #include "main/GuiUtils.hpp"
+#include "db/CoreCapabilities.hpp"
+#include "db/ProfileFilter.hpp"
+#include "ui/mainwindow_interface.h"
 
 #include <QInputDialog>
+#include <QButtonGroup>
+#include <QRadioButton>
+#include <QSignalBlocker>
+#include <QPlainTextEdit>
+#include <QListWidget>
+#include <QTimer>
 
-#define ADJUST_SIZE runOnUiThread([=] { adjustSize(); adjustPosition(mainwindow); }, this);
+#define ADJUST_SIZE QTimer::singleShot(0, this, [this] { adjustSize(); adjustPosition(mainwindow); });
 #define LOAD_TYPE(a) ui->type->addItem(NekoGui::ProfileManager::NewProxyEntity(a)->bean->DisplayType(), a);
 
 DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId, QWidget *parent)
@@ -27,18 +36,45 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
     ui->setupUi(this);
     ui->dialog_layout->setAlignment(ui->left, Qt::AlignTop);
 
+    auto coreBox = new QGroupBox(tr("节点内核"), this);
+    coreBox->setObjectName("edit_core_box");
+    auto coreLayout = new QVBoxLayout(coreBox);
+    auto coreRow = new QHBoxLayout;
+    coreChoices = new QButtonGroup(this);
+    const QStringList labels{tr("自动"), QStringLiteral("Xray"), QStringLiteral("sing-box")};
+    const QStringList names{"edit_core_auto", "edit_core_xray", "edit_core_singbox"};
+    for (int preference = 0; preference < labels.size(); ++preference) {
+        auto button = new QRadioButton(labels[preference], coreBox);
+        button->setObjectName(names[preference]);
+        coreChoices->addButton(button, preference);
+        coreRow->addWidget(button);
+        connect(button, &QRadioButton::clicked, this, [this, preference] {
+            pendingCorePreference = preference;
+            refresh_core_choice();
+        });
+    }
+    coreChoices->button(0)->setChecked(true);
+    coreLayout->addLayout(coreRow);
+    coreReason = new QLabel(coreBox);
+    coreReason->setObjectName("edit_core_reason");
+    coreReason->setWordWrap(true);
+    coreLayout->addWidget(coreReason);
+    ui->left->insertWidget(1, coreBox);
+
     // network changed
     network_title_base = ui->network_box->title();
     connect(ui->network, &QComboBox::currentTextChanged, this, [=](const QString &txt) {
         ui->network_box->setTitle(network_title_base.arg(txt));
         // 传输设置
-        if (txt == "tcp") {
+        ui->path_l->setText(txt == "kcp" ? QStringLiteral("Seed") : txt == "quic" ? QStringLiteral("Key") : tr("Path"));
+        ui->host_l->setText(txt == "quic" ? tr("Security") : tr("Host"));
+        if (txt == "tcp" || txt == "quic" || txt == "kcp") {
             ui->header_type->setVisible(true);
             ui->header_type_l->setVisible(true);
             ui->path->setVisible(true);
             ui->path_l->setVisible(true);
-            ui->host->setVisible(true);
-            ui->host_l->setVisible(true);
+            ui->host->setVisible(txt != "kcp");
+            ui->host_l->setVisible(txt != "kcp");
         } else if (txt == "grpc") {
             ui->header_type->setVisible(false);
             ui->header_type_l->setVisible(false);
@@ -62,7 +98,7 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
             ui->host_l->setVisible(false);
         }
         // 传输设置 ED
-        if (txt == "ws" && IS_NEKO_BOX) {
+        if (txt == "ws") {
             ui->ws_early_data_length->setVisible(true);
             ui->ws_early_data_length_l->setVisible(true);
             ui->ws_early_data_name->setVisible(true);
@@ -73,11 +109,8 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
             ui->ws_early_data_name->setVisible(false);
             ui->ws_early_data_name_l->setVisible(false);
         }
-        // 传输设置 for NekoBox
-        if (IS_NEKO_BOX) {
-            if (!ui->utlsFingerprint->count()) ui->utlsFingerprint->addItems(Preset::SingBox::UtlsFingerPrint);
-        } else {
-            if (!ui->utlsFingerprint->count()) ui->utlsFingerprint->addItems(Preset::Xray::UtlsFingerPrint);
+        for (const auto &fingerprint: Preset::Xray::UtlsFingerPrint + Preset::SingBox::UtlsFingerPrint) {
+            if (ui->utlsFingerprint->findText(fingerprint) < 0) ui->utlsFingerprint->addItem(fingerprint);
         }
         // 传输设置 是否可见
         int networkBoxVisible = 0;
@@ -85,27 +118,26 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
             if (!label->isHidden()) networkBoxVisible++;
         }
         ui->network_box->setVisible(networkBoxVisible);
+        refresh_core_choice();
         ADJUST_SIZE
     });
     ui->network->removeItem(0);
 
-//    if (IS_NEKO_BOX) {
-//        ui->network->addItem("httpupgrade");
-//    }
+    ui->network->addItems({"httpupgrade", "kcp"});
+    ui->header_type->addItems({"none", "srtp", "utp", "wechat-video", "dtls", "wireguard"});
 
     // security changed
     connect(ui->security, &QComboBox::currentTextChanged, this, [=](const QString &txt) {
         if (txt == "tls") {
             ui->security_box->setVisible(true);
             ui->tls_camouflage_box->setVisible(true);
-            if (IS_NEKO_BOX) {
-                ui->reality_spx->hide();
-                ui->reality_spx_l->hide();
-            }
+            ui->reality_spx->show();
+            ui->reality_spx_l->show();
         } else {
             ui->security_box->setVisible(false);
             ui->tls_camouflage_box->setVisible(false);
         }
+        refresh_core_choice();
         ADJUST_SIZE
     });
     emit ui->security->currentTextChanged(ui->security->currentText());
@@ -113,7 +145,7 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
     // 确定模式和 ent
     newEnt = _type != "";
     if (newEnt) {
-        this->groupId = profileOrGroupId;
+        this->groupId = profileOrGroupId < 0 ? NekoGui::dataStore->current_group : profileOrGroupId;
         this->type = _type;
 
         // load type to combo box
@@ -138,15 +170,33 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
         });
 
         ui->apply_to_group->hide();
+        const QSignalBlocker blocked(ui->type);
+        ui->type->setCurrentIndex(ui->type->findData(_type));
     } else {
-        this->ent = NekoGui::profileManager->GetProfile(profileOrGroupId);
-        if (this->ent == nullptr) return;
-        this->type = ent->type;
+        originalEnt = NekoGui::profileManager->GetProfile(profileOrGroupId);
+        if (!originalEnt) return;
+        this->type = originalEnt->type;
+        this->ent = NekoGui::ProfileManager::NewProxyEntity(type);
+        this->ent->FromJson(originalEnt->ToJson());
+        pendingCorePreference = ent->core_preference;
+        coreChoices->button(pendingCorePreference)->setChecked(true);
         ui->type->setVisible(false);
         ui->type_l->setVisible(false);
     }
 
     typeSelected(this->type);
+
+    // Preview changes to the common controls without committing the draft.
+    for (auto control: ui->groupBox->findChildren<QLineEdit *>()) {
+        connect(control, &QLineEdit::textChanged, this, [this] { refresh_core_choice(); });
+    }
+    for (auto control: ui->right_all_w->findChildren<QLineEdit *>()) {
+        connect(control, &QLineEdit::textChanged, this, [this] { refresh_core_choice(); });
+    }
+    for (auto control: ui->right_all_w->findChildren<QComboBox *>()) {
+        connect(control, &QComboBox::currentTextChanged, this, [this] { refresh_core_choice(); });
+    }
+    connect(ui->insecure, &QCheckBox::toggled, this, [this] { refresh_core_choice(); });
 }
 
 DialogEditProfile::~DialogEditProfile() {
@@ -154,6 +204,7 @@ DialogEditProfile::~DialogEditProfile() {
 }
 
 void DialogEditProfile::typeSelected(const QString &newType) {
+    loadingEditor = true;
     QString customType;
     type = newType;
     bool validType = true;
@@ -198,6 +249,7 @@ void DialogEditProfile::typeSelected(const QString &newType) {
     }
 
     if (!validType) {
+        loadingEditor = false;
         MessageBoxWarning(newType, "Wrong type");
         return;
     }
@@ -217,6 +269,13 @@ void DialogEditProfile::typeSelected(const QString &newType) {
     // 右边 stream
     auto stream = GetStreamSettings(ent->bean.get());
     if (stream != nullptr) {
+        auto preserveCombo = [](QComboBox *combo, const QString &value) {
+            if (combo->findText(value) < 0) combo->addItem(value);
+        };
+        preserveCombo(ui->network, stream->network);
+        preserveCombo(ui->security, stream->security);
+        preserveCombo(ui->packet_encoding, stream->packet_encoding);
+        preserveCombo(ui->utlsFingerprint, stream->utlsFingerprint);
         ui->right_all_w->setVisible(true);
         ui->network->setCurrentText(stream->network);
         ui->security->setCurrentText(stream->security);
@@ -236,6 +295,7 @@ void DialogEditProfile::typeSelected(const QString &newType) {
         ui->ws_early_data_length->setText(Int2String(stream->ws_early_data_length));
         ui->reality_pbk->setText(stream->reality_pbk);
         ui->reality_sid->setText(stream->reality_sid);
+        ui->reality_spx->setText(stream->reality_spx);
         ui->multiplex->setCurrentIndex(stream->multiplex_status);
         CACHE.certificate = stream->certificate;
     } else {
@@ -276,6 +336,48 @@ void DialogEditProfile::typeSelected(const QString &newType) {
     innerEditor->editor_cache_updated = [=] { editor_cache_updated_impl(); };
     innerEditor->onStart(ent);
 
+    // The editor presents the union of both adapters. ResolveCore explains
+    // which combinations can be used; the old global core no longer hides a
+    // field or silently substitutes a value when opening an imported node.
+    if (type == "shadowsocks") {
+        auto methods = innerWidget->findChild<QComboBox *>("method");
+        if (methods) {
+            for (const auto &method: Preset::Xray::ShadowsocksMethods + Preset::SingBox::ShadowsocksMethods) {
+                if (methods->findText(method) < 0) methods->addItem(method);
+            }
+            if (methods->findText(ent->ShadowSocksBean()->method) < 0) methods->addItem(ent->ShadowSocksBean()->method);
+            methods->setCurrentText(ent->ShadowSocksBean()->method);
+        }
+    }
+    if (type == "vless" || type == "trojan") {
+        auto flows = innerWidget->findChild<QComboBox *>("flow");
+        if (flows) {
+            for (const auto &flow: Preset::Xray::Flows + Preset::SingBox::Flows) {
+                if (flows->findText(flow) < 0) flows->addItem(flow);
+            }
+            if (flows->findText(ent->TrojanVLESSBean()->flow) < 0) flows->addItem(ent->TrojanVLESSBean()->flow);
+            flows->setCurrentText(ent->TrojanVLESSBean()->flow);
+        }
+    }
+    if (type == "hysteria" || type == "hysteria2") {
+        if (auto forceExternal = innerWidget->findChild<QCheckBox *>("forceExternal")) forceExternal->show();
+    }
+    if (type == "tuic") {
+        if (auto uos = innerWidget->findChild<QCheckBox *>("uos")) uos->show();
+    }
+    for (auto control: innerWidget->findChildren<QLineEdit *>()) {
+        connect(control, &QLineEdit::textChanged, this, [this] { refresh_core_choice(); });
+    }
+    for (auto control: innerWidget->findChildren<QComboBox *>()) {
+        connect(control, &QComboBox::currentTextChanged, this, [this] { refresh_core_choice(); });
+    }
+    for (auto control: innerWidget->findChildren<QCheckBox *>()) {
+        connect(control, &QCheckBox::toggled, this, [this] { refresh_core_choice(); });
+    }
+    for (auto control: innerWidget->findChildren<QPlainTextEdit *>()) {
+        connect(control, &QPlainTextEdit::textChanged, this, [this] { refresh_core_choice(); });
+    }
+
     // 左边 common
     ui->name->setText(ent->bean->name);
     ui->address->setText(ent->bean->serverAddress);
@@ -285,48 +387,17 @@ void DialogEditProfile::typeSelected(const QString &newType) {
     // 星号
     ADD_ASTERISK(this)
 
-    // 设置 for NekoBox
-    if (IS_NEKO_BOX) {
-        if (type == "vmess" || type == "vless") {
-            ui->packet_encoding->setVisible(true);
-            ui->packet_encoding_l->setVisible(true);
-        } else {
-            ui->packet_encoding->setVisible(false);
-            ui->packet_encoding_l->setVisible(false);
-        }
-        if (type == "vmess" || type == "vless" || type == "trojan") {
-            ui->network_l->setVisible(true);
-            ui->network->setVisible(true);
-            ui->network_box->setVisible(true);
-        } else {
-            ui->network_l->setVisible(false);
-            ui->network->setVisible(false);
-            ui->network_box->setVisible(false);
-        }
-        if (type == "vmess" || type == "vless" || type == "trojan" || type == "http") {
-            ui->security->setVisible(true);
-            ui->security_l->setVisible(true);
-        } else {
-            ui->security->setVisible(false);
-            ui->security_l->setVisible(false);
-        }
-        if (type == "vmess" || type == "vless" || type == "trojan" || type == "shadowsocks") {
-            ui->multiplex->setVisible(true);
-            ui->multiplex_l->setVisible(true);
-        } else {
-            ui->multiplex->setVisible(false);
-            ui->multiplex_l->setVisible(false);
-        }
-        // 设置 是否可见
-        int streamBoxVisible = 0;
-        for (auto label: ui->stream_box->findChildren<QLabel *>()) {
-            if (!label->isHidden()) streamBoxVisible++;
-        }
-        ui->stream_box->setVisible(streamBoxVisible);
-    } else {
-        ui->packet_encoding->setVisible(false);
-        ui->packet_encoding_l->setVisible(false);
-    }
+    const bool packetEncoding = type == "vmess" || type == "vless";
+    ui->packet_encoding->setVisible(packetEncoding);
+    ui->packet_encoding_l->setVisible(packetEncoding);
+    ui->network->setVisible(stream != nullptr);
+    ui->network_l->setVisible(stream != nullptr);
+    ui->security->setVisible(stream != nullptr);
+    ui->security_l->setVisible(stream != nullptr);
+    const bool multiplex = type == "vmess" || type == "vless" || type == "trojan" || type == "shadowsocks";
+    ui->multiplex->setVisible(multiplex);
+    ui->multiplex_l->setVisible(multiplex);
+    ui->stream_box->setVisible(stream != nullptr);
 
     // 载入 type 之后，有些类型没有右边的设置
     auto rightNoBox = (ui->stream_box->isHidden() && ui->network_box->isHidden() && ui->security_box->isHidden());
@@ -335,11 +406,13 @@ void DialogEditProfile::typeSelected(const QString &newType) {
     }
 
     editor_cache_updated_impl();
+    loadingEditor = false;
+    refresh_core_choice();
     ADJUST_SIZE
 
     // 第一次显示
     if (isHidden()) {
-        runOnUiThread([=] { show(); }, this);
+        QTimer::singleShot(0, this, [this] { show(); });
     }
 }
 
@@ -354,8 +427,17 @@ bool DialogEditProfile::onEnd() {
     ent->bean->serverAddress = ui->address->text().remove(' ');
     ent->bean->serverPort = ui->port->text().toInt();
 
-    // 右边 stream
-    auto stream = GetStreamSettings(ent->bean.get());
+    save_stream_fields(ent->bean.get());
+
+    // cached custom
+    ent->bean->custom_outbound = CACHE.custom_outbound;
+    ent->bean->custom_config = CACHE.custom_config;
+
+    return true;
+}
+
+void DialogEditProfile::save_stream_fields(NekoGui_fmt::AbstractBean *bean) const {
+    auto stream = GetStreamSettings(bean);
     if (stream != nullptr) {
         stream->network = ui->network->currentText();
         stream->security = ui->security->currentText();
@@ -371,14 +453,69 @@ bool DialogEditProfile::onEnd() {
         stream->ws_early_data_length = ui->ws_early_data_length->text().toInt();
         stream->reality_pbk = ui->reality_pbk->text();
         stream->reality_sid = ui->reality_sid->text();
+        stream->reality_spx = ui->reality_spx->text();
         stream->multiplex_status = ui->multiplex->currentIndex();
         stream->certificate = CACHE.certificate;
     }
 
-    // cached custom
-    ent->bean->custom_outbound = CACHE.custom_outbound;
-    ent->bean->custom_config = CACHE.custom_config;
+}
 
+void DialogEditProfile::refresh_core_choice() {
+    if (loadingEditor || !ent || !innerEditor || !coreChoices) return;
+    // These editors only collect field values in onEnd. The custom/chain
+    // editors also validate with dialogs, so preview their relevant controls
+    // directly and reserve validation for Accept.
+    if (type != "custom" && type != "chain") innerEditor->onEnd();
+    ent->bean->name = ui->name->text();
+    ent->bean->serverAddress = ui->address->text().remove(' ');
+    ent->bean->serverPort = ui->port->text().toInt();
+    save_stream_fields(ent->bean.get());
+    ent->bean->custom_config = CACHE.custom_config;
+    ent->bean->custom_outbound = CACHE.custom_outbound;
+    ent->core_preference = pendingCorePreference;
+    if (type == "custom") {
+        if (auto core = innerWidget->findChild<QComboBox *>("core")) ent->CustomBean()->core = core->currentText();
+        if (auto config = innerWidget->findChild<QPlainTextEdit *>("config_simple")) ent->CustomBean()->config_simple = config->toPlainText();
+    } else if (type == "chain") {
+        if (auto list = innerWidget->findChild<QListWidget *>("listWidget")) {
+            ent->ChainBean()->list.clear();
+            for (int index = 0; index < list->count(); ++index) ent->ChainBean()->list.append(list->item(index)->data(114514).toInt());
+        }
+    }
+    const auto resolution = NekoGui::ResolveCore(ent, NekoGui::PreferredCore());
+    coreChoices->button(1)->setEnabled(resolution.xraySupported);
+    coreChoices->button(2)->setEnabled(resolution.singBoxSupported);
+    coreChoices->button(1)->setToolTip(resolution.xrayReason);
+    coreChoices->button(2)->setToolTip(resolution.singBoxReason);
+    coreReason->setText(resolution.reason + "\n" + tr("保存后下次连接生效，当前连接保持。"));
+}
+
+bool DialogEditProfile::commit_draft() {
+    if (newEnt) {
+        if (!NekoGui::profileManager->GetGroup(groupId)) {
+            MessageBoxWarning(tr("无法保存"), tr("目标分组已被删除，请重新选择分组。"));
+            return false;
+        }
+        ent->core_preference = pendingCorePreference;
+        return NekoGui::profileManager->AddProfile(ent, groupId);
+    }
+    if (!originalEnt || NekoGui::profileManager->GetProfile(originalEnt->id) != originalEnt) {
+        MessageBoxWarning(tr("无法保存"), tr("节点已被删除或被订阅替换，请重新打开编辑。"));
+        return false;
+    }
+    const bool configChanged = NekoGui::ProfileFilter::SubscriptionIdentity(originalEnt) !=
+                               NekoGui::ProfileFilter::SubscriptionIdentity(ent);
+    // Keep current local metadata/history (which may have changed during a
+    // batch test), and copy only the edited protocol into a separate bean.
+    auto replacement = NekoGui::ProfileManager::NewProxyEntity(type);
+    replacement->bean->FromJson(ent->bean->ToJson());
+    originalEnt->bean = replacement->bean;
+    originalEnt->_get("bean")->ptr = dynamic_cast<JsonStore *>(originalEnt->bean.get());
+    if (configChanged) {
+        originalEnt->latency = 0;
+        originalEnt->full_test_report.clear();
+    }
+    originalEnt->Save();
     return true;
 }
 
@@ -391,15 +528,16 @@ void DialogEditProfile::accept() {
     // finish
     QStringList msg = {"accept"};
 
-    if (newEnt) {
-        auto ok = NekoGui::profileManager->AddProfile(ent);
-        if (!ok) {
-            MessageBoxWarning("???", "id exists");
-        }
-    } else {
-        auto changed = ent->Save();
-        if (changed && NekoGui::dataStore->started_id == ent->id) msg << "restart";
+    const bool configChanged = !newEnt && originalEnt &&
+        NekoGui::ProfileFilter::SubscriptionIdentity(originalEnt) != NekoGui::ProfileFilter::SubscriptionIdentity(ent);
+    if (!commit_draft()) return;
+    auto saved = newEnt ? ent : originalEnt;
+    if (auto window = GetMainWindow()) window->set_core_preference(saved->id, pendingCorePreference, false);
+    else {
+        saved->core_preference = pendingCorePreference;
+        saved->Save();
     }
+    if (configChanged && NekoGui::dataStore->started_id == saved->id) msg << "restart";
 
     MW_dialog_message(Dialog_DialogEditProfile, msg.join(","));
     QDialog::accept();
@@ -432,6 +570,7 @@ void DialogEditProfile::editor_cache_updated_impl() {
             a.first->setText(tr("Already set"));
         }
     }
+    refresh_core_choice();
 }
 
 void DialogEditProfile::on_custom_outbound_edit_clicked() {
@@ -473,9 +612,7 @@ void DialogEditProfile::on_apply_to_group_clicked() {
             return;
         }
         // save this
-        if (onEnd()) {
-            ent->Save();
-        } else {
+        if (!onEnd() || !commit_draft()) {
             MessageBoxWarning("failed", "failed to save");
             return;
         }

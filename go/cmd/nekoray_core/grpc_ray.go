@@ -2,161 +2,135 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"grpc_server"
 	"grpc_server/gen"
-	"log"
-
-	"github.com/matsuridayo/libneko/neko_common"
-	"github.com/matsuridayo/libneko/speedtest"
-
-	"github.com/xtls/xray-core/nekoutils"
+	"grpc_server/probe"
 )
 
-type server struct {
-	grpc_server.BaseServer
-}
+type server struct{ grpc_server.BaseServer }
 
-func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.ErrorResp, _ error) {
-	var err error
-
-	defer func() {
-		out = &gen.ErrorResp{}
-		if err != nil {
-			out.Error = err.Error()
-			instance = nil
-		}
-	}()
-
-	if neko_common.Debug {
-		log.Println("Start:", in.CoreConfig)
-		log.Println("EnableNekorayConnections:", in.EnableNekorayConnections)
+func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (*gen.ErrorResp, error) {
+	instanceMu.Lock()
+	defer instanceMu.Unlock()
+	out := &gen.ErrorResp{}
+	if err := ctx.Err(); err != nil {
+		out.Error = err.Error()
+		return out, nil
 	}
-
 	if instance != nil {
-		err = errors.New("instance already started")
-		return
+		out.Error = "instance already started"
+		return out, nil
 	}
-
-	instance, err = NewNekoV2rayInstance(in.CoreConfig)
+	i, err := NewNekoV2rayInstance(in.CoreConfig)
 	if err != nil {
-		return
+		out.Error = err.Error()
+		return out, nil
 	}
-
-	nekoutils.SetConnectionPoolV2RayEnabled(instance.CorePtr(), in.EnableNekorayConnections)
-
-	err = instance.Start()
-	if err != nil {
-		return
+	i.connections.enabled.Store(in.EnableNekorayConnections)
+	if err = ctx.Err(); err != nil {
+		i.Close()
+		out.Error = err.Error()
+		return out, nil
 	}
-
-	return
+	if err = i.Start(); err != nil {
+		i.Close()
+		out.Error = err.Error()
+		return out, nil
+	}
+	if err = ctx.Err(); err != nil {
+		i.Close()
+		out.Error = err.Error()
+		return out, nil
+	}
+	instance = i
+	return out, nil
 }
 
-func (s *server) Stop(ctx context.Context, in *gen.EmptyReq) (out *gen.ErrorResp, _ error) {
-	var err error
-
-	defer func() {
-		out = &gen.ErrorResp{}
-		if err != nil {
+func (s *server) Stop(ctx context.Context, in *gen.EmptyReq) (*gen.ErrorResp, error) {
+	instanceMu.Lock()
+	defer instanceMu.Unlock()
+	out := &gen.ErrorResp{}
+	if instance != nil {
+		if err := instance.Close(); err != nil {
 			out.Error = err.Error()
 		}
-	}()
-
-	if instance == nil {
-		return
+		instance = nil
 	}
-
-	err = instance.Close()
-	instance = nil
-
-	return
+	return out, nil
 }
 
-func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, _ error) {
-	var err error
-	out = &gen.TestResp{Ms: 0}
-
-	defer func() {
-		if err != nil {
-			out.Error = err.Error()
-		}
-	}()
-
-	if neko_common.Debug {
-		log.Println("Test:", in)
+func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, rpcErr error) {
+	out = &gen.TestResp{}
+	defer func() { grpc_server.AttachTestIdentity(out, coreCapabilities()) }()
+	if err := ctx.Err(); err != nil {
+		grpc_server.SetTestError(out, err, gen.FailureCategory_FailureCancelled)
+		return out, nil
 	}
-
-	if in.Mode == gen.TestMode_UrlTest {
-		var i *NekoV2RayInstance
-
+	var err error
+	switch in.Mode {
+	case gen.TestMode_TcpPing:
+		out.Ms, err = probe.TCP(ctx, in.Address, in.Timeout)
+	case gen.TestMode_UrlTest, gen.TestMode_FullTest:
+		i := currentInstance()
 		if in.Config != nil {
-			// Test instance
 			i, err = NewNekoV2rayInstance(in.Config.CoreConfig)
 			if err != nil {
-				return
+				grpc_server.SetTestError(out, err, grpc_server.LocalFailure(ctx, err))
+				return out, nil
 			}
 			defer i.Close()
-
-			err = i.Start()
-			if err != nil {
-				return
-			}
-		} else {
-			// Test running instance
-			i = instance
-			if i == nil {
-				return
+			if err = i.Start(); err != nil {
+				grpc_server.SetTestError(out, err, grpc_server.LocalFailure(ctx, err))
+				return out, nil
 			}
 		}
-
-		// Latency
-		var t int32
-		t, err = speedtest.UrlTest(createProxyHttpClient(i), in.Url, in.Timeout)
-		out.Ms = t // sn: ms==0 是错误
-	} else if in.Mode == gen.TestMode_TcpPing {
-		out.Ms, err = speedtest.TcpPing(in.Address, in.Timeout)
-	} else if in.Mode == gen.TestMode_FullTest {
-		if in.Config == nil {
-			return
+		if i == nil {
+			out.Error = "core is not running"
+			out.FailureCategory = gen.FailureCategory_FailureCore
+			return out, nil
 		}
-		// Test instance
-		i, err := NewNekoV2rayInstance(in.Config.CoreConfig)
-		if err != nil {
-			return
+		if in.Mode == gen.TestMode_FullTest {
+			out, rpcErr = grpc_server.DoFullTest(ctx, in, i)
+			if i.closed.Load() && out.Error != "" && ctx.Err() == nil {
+				out.FailureCategory = gen.FailureCategory_FailureCore
+			}
+			return out, rpcErr
 		}
-		defer i.Close()
-
-		err = i.Start()
-		if err != nil {
-			return
+		client := createProxyHttpClient(i)
+		defer client.CloseIdleConnections()
+		out.Ms, err = probe.URL(ctx, client, in.Url, in.Timeout)
+		if err != nil && i.closed.Load() && ctx.Err() == nil {
+			grpc_server.SetTestError(out, err, gen.FailureCategory_FailureCore)
+			return out, nil
 		}
-
-		return grpc_server.DoFullTest(ctx, in, i)
+	default:
+		out.Error = "unknown test mode"
+		out.FailureCategory = gen.FailureCategory_FailureConfig
 	}
-
-	return
+	if err != nil {
+		grpc_server.SetTestError(out, err, grpc_server.RemoteFailure(ctx, err))
+	}
+	return out, nil
 }
 
-func (s *server) QueryStats(ctx context.Context, in *gen.QueryStatsReq) (out *gen.QueryStatsResp, _ error) {
-	out = &gen.QueryStatsResp{}
+func (s *server) QueryStats(ctx context.Context, in *gen.QueryStatsReq) (*gen.QueryStatsResp, error) {
+	instanceMu.RLock()
+	defer instanceMu.RUnlock()
+	out := &gen.QueryStatsResp{}
 	if instance != nil && instance.StatsManager != nil {
 		counter := instance.StatsManager.GetCounter(fmt.Sprintf("outbound>>>%s>>>traffic>>>%s", in.Tag, in.Direct))
 		if counter != nil {
 			out.Traffic = counter.Set(0)
 		}
 	}
-	return
+	return out, nil
 }
 
-func (s *server) ListConnections(ctx context.Context, in *gen.EmptyReq) (out *gen.ListConnectionsResp, _ error) {
-	// nekoray_connections_json
-
-	out = &gen.ListConnectionsResp{}
-	if instance != nil {
-		out.NekorayConnectionsJson = nekoutils.ListConnections(instance.CorePtr())
+func (s *server) ListConnections(ctx context.Context, in *gen.EmptyReq) (*gen.ListConnectionsResp, error) {
+	out := &gen.ListConnectionsResp{NekorayConnectionsJson: "[]"}
+	if i := currentInstance(); i != nil {
+		out.NekorayConnectionsJson = i.connections.snapshot()
 	}
-
-	return
+	return out, nil
 }

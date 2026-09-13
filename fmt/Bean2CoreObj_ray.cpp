@@ -1,20 +1,32 @@
 #include "db/ProxyEntity.hpp"
 #include "fmt/includes.h"
 
+#include <QUrl>
+#include <QUrlQuery>
+
 #define MAKE_SETTINGS_STREAM_SETTINGS                         \
     outbound["settings"] = settings;                          \
-    auto streamSettings = stream->BuildStreamSettingsV2Ray(); \
+    auto streamSettings = stream->BuildStreamSettingsV2Ray(runtimeSettings); \
     outbound["streamSettings"] = streamSettings;
 
 namespace NekoGui_fmt {
-    QJsonObject V2rayStreamSettings::BuildStreamSettingsV2Ray() {
+    QJsonObject V2rayStreamSettings::BuildStreamSettingsV2Ray(const NekoGui::DataStore *runtimeSettings) {
         QJsonObject streamSettings{{"network", network}};
 
         if (network == "ws") {
             QJsonObject ws;
             if (!host.isEmpty()) ws["headers"] = QJsonObject{{"Host", host}};
             // ws path & ed
-            if (!path.isEmpty()) ws["path"] = path;
+            auto wsPath = path;
+            if (ws_early_data_length > 0) {
+                QUrl url(wsPath);
+                QUrlQuery query(url);
+                query.removeAllQueryItems("ed");
+                query.addQueryItem("ed", QString::number(ws_early_data_length));
+                url.setQuery(query);
+                wsPath = url.toString(QUrl::FullyEncoded);
+            }
+            if (!wsPath.isEmpty()) ws["path"] = wsPath;
             streamSettings["wsSettings"] = ws;
         } else if (network == "http") {
             QJsonObject http;
@@ -25,6 +37,11 @@ namespace NekoGui_fmt {
             QJsonObject grpc;
             if (!path.isEmpty()) grpc["serviceName"] = path;
             streamSettings["grpcSettings"] = grpc;
+        } else if (network == "kcp") {
+            QJsonObject kcp;
+            if (!path.isEmpty()) kcp["seed"] = path;
+            if (!header_type.isEmpty()) kcp["header"] = QJsonObject{{"type", header_type}};
+            streamSettings["kcpSettings"] = kcp;
         } else if (network == "quic") {
             QJsonObject quic;
             if (!header_type.isEmpty()) quic["header"] = QJsonObject{{"type", header_type}};
@@ -47,7 +64,7 @@ namespace NekoGui_fmt {
             if (!utlsFingerprint.isEmpty()) tls["fingerprint"] = utlsFingerprint;
             if (!sni.trimmed().isEmpty()) tls["serverName"] = sni;
             if (reality_pbk.trimmed().isEmpty()) {
-                if (allow_insecure || NekoGui::dataStore->skip_cert) tls["allowInsecure"] = true;
+                if (allow_insecure || (runtimeSettings != nullptr ? runtimeSettings : NekoGui::dataStore)->skip_cert) tls["allowInsecure"] = true;
                 if (!alpn.trimmed().isEmpty()) tls["alpn"] = QList2QJsonArray(alpn.split(","));
                 if (!certificate.trimmed().isEmpty()) {
                     tls["disableSystemRoot"] = true;
@@ -73,13 +90,15 @@ namespace NekoGui_fmt {
         return streamSettings;
     }
 
-    CoreObjOutboundBuildResult SocksHttpBean::BuildCoreObjV2Ray() {
+    CoreObjOutboundBuildResult SocksHttpBean::BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
 
         QJsonObject outbound;
         outbound["protocol"] = socks_http_type == type_HTTP ? "http" : "socks";
 
         QJsonObject settings;
+        if (socks_http_type == type_Socks4) settings["version"] = "4";
+        else if (socks_http_type == type_Socks5) settings["version"] = "5";
         QJsonArray servers;
         QJsonObject server;
 
@@ -91,7 +110,7 @@ namespace NekoGui_fmt {
         user["user"] = username;
         user["pass"] = password;
         users.push_back(user);
-        if (!username.isEmpty() && !password.isEmpty()) server["users"] = users;
+        if (!username.isEmpty() || !password.isEmpty()) server["users"] = users;
 
         servers.push_back(server);
         settings["servers"] = servers;
@@ -102,7 +121,7 @@ namespace NekoGui_fmt {
         return result;
     }
 
-    CoreObjOutboundBuildResult ShadowSocksBean::BuildCoreObjV2Ray() {
+    CoreObjOutboundBuildResult ShadowSocksBean::BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
 
         QJsonObject outbound{{"protocol", "shadowsocks"}};
@@ -137,7 +156,7 @@ namespace NekoGui_fmt {
         return result;
     }
 
-    CoreObjOutboundBuildResult VMessBean::BuildCoreObjV2Ray() {
+    CoreObjOutboundBuildResult VMessBean::BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
         QJsonObject outbound{{"protocol", "vmess"}};
 
@@ -160,7 +179,7 @@ namespace NekoGui_fmt {
         return result;
     }
 
-    CoreObjOutboundBuildResult TrojanVLESSBean::BuildCoreObjV2Ray() {
+    CoreObjOutboundBuildResult TrojanVLESSBean::BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
         QJsonObject outbound{
             {"protocol", proxy_type == proxy_VLESS ? "vless" : "trojan"},
@@ -168,9 +187,7 @@ namespace NekoGui_fmt {
 
         QJsonObject settings;
         if (proxy_type == proxy_VLESS) {
-            if (flow == "none") {
-                flow = "";
-            }
+            const auto normalizedFlow = flow == "none" ? QString() : flow;
             settings = QJsonObject{
                 {"vnext", QJsonArray{
                               QJsonObject{
@@ -180,7 +197,7 @@ namespace NekoGui_fmt {
                                                 QJsonObject{
                                                     {"id", password.trimmed()},
                                                     {"encryption", "none"},
-                                                    {"flow", flow},
+                                                    {"flow", normalizedFlow},
                                                 }}},
                               }}}};
         } else {
@@ -199,7 +216,7 @@ namespace NekoGui_fmt {
         return result;
     }
 
-    CoreObjOutboundBuildResult CustomBean::BuildCoreObjV2Ray() {
+    CoreObjOutboundBuildResult CustomBean::BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
 
         if (core == "internal") {

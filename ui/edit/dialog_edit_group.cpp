@@ -5,29 +5,30 @@
 #include "ui/mainwindow_interface.h"
 
 #include <QClipboard>
-
-#define ADJUST_SIZE runOnUiThread([=] { adjustSize(); adjustPosition(mainwindow); }, this);
+#include <QTimer>
 
 DialogEditGroup::DialogEditGroup(const std::shared_ptr<NekoGui::Group> &ent, QWidget *parent) : QDialog(parent), ui(new Ui::DialogEditGroup) {
     ui->setupUi(this);
     this->ent = ent;
 
-    connect(ui->type, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this, [=](int index) {
-        ui->cat_sub->setHidden(index == 0);
-        ADJUST_SIZE
+    connect(ui->type_subscription, &QRadioButton::toggled, this, [this](bool subscription) {
+        ui->cat_sub->setVisible(subscription);
+        QTimer::singleShot(0, this, [this] { adjustSize(); adjustPosition(mainwindow); });
     });
 
     ui->name->setText(ent->name);
     ui->archive->setChecked(ent->archive);
     ui->skip_auto_update->setChecked(ent->skip_auto_update);
     ui->url->setText(ent->url);
-    ui->type->setCurrentIndex(ent->url.isEmpty() ? 0 : 1);
-    ui->type->currentIndexChanged(ui->type->currentIndex());
+    ui->type_basic->setChecked(ent->url.isEmpty());
+    ui->type_subscription->setChecked(!ent->url.isEmpty());
+    ui->cat_sub->setVisible(!ent->url.isEmpty());
     ui->manually_column_width->setChecked(ent->manually_column_width);
     ui->cat_share->setVisible(false);
 
     if (ent->id >= 0) { // already a group
-        ui->type->setDisabled(true);
+        ui->type_basic->setDisabled(true);
+        ui->type_subscription->setDisabled(true);
         if (!ent->Profiles().isEmpty()) {
             ui->cat_share->setVisible(true);
         }
@@ -63,7 +64,7 @@ DialogEditGroup::DialogEditGroup(const std::shared_ptr<NekoGui::Group> &ent, QWi
         MessageBoxInfo(software_name, tr("Copied"));
     });
 
-    ADJUST_SIZE
+    QTimer::singleShot(0, this, [this] { adjustSize(); adjustPosition(mainwindow); });
 }
 
 DialogEditGroup::~DialogEditGroup() {
@@ -71,14 +72,13 @@ DialogEditGroup::~DialogEditGroup() {
 }
 
 void DialogEditGroup::accept() {
-    if (ent->id >= 0) { // already a group
-        if (!ent->url.isEmpty() && ui->url->text().isEmpty()) {
-            MessageBoxWarning(tr("Warning"), tr("Please input URL"));
-            return;
-        }
+    const auto url = ui->url->text().trimmed();
+    if (ui->type_subscription->isChecked() && url.isEmpty()) {
+        MessageBoxWarning(tr("Warning"), tr("Please input URL"));
+        return;
     }
     ent->name = ui->name->text();
-    ent->url = ui->url->text();
+    ent->url = ui->type_subscription->isChecked() ? url : QString();
     ent->archive = ui->archive->isChecked();
     ent->skip_auto_update = ui->skip_auto_update->isChecked();
     ent->manually_column_width = ui->manually_column_width->isChecked();
@@ -92,13 +92,13 @@ void DialogEditGroup::refresh_front_proxy() {
 }
 
 void DialogEditGroup::on_front_proxy_clicked() {
-    auto parent = dynamic_cast<QWidget *>(this->parent());
-    parent->hide();
+    auto parentWindow = qobject_cast<QWidget *>(parent());
+    if (parentWindow != nullptr && parentWindow != GetMainWindow()) parentWindow->hide();
     this->hide();
     GetMainWindow()->start_select_mode(this, [=](int id) {
         CACHE.front_proxy = id;
         refresh_front_proxy();
-        parent->show();
+        if (parentWindow != nullptr) parentWindow->show();
         show();
     });
 }

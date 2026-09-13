@@ -2,49 +2,61 @@ package main
 
 import (
 	"context"
+	"grpc_server/probe"
 	"net"
 	"net/http"
+	"sync"
 
 	"github.com/matsuridayo/libneko/neko_common"
 	"github.com/matsuridayo/libneko/neko_log"
-	"github.com/matsuridayo/sing-box-extra/boxapi"
-	"github.com/matsuridayo/sing-box-extra/boxbox"
-	"github.com/matsuridayo/sing-box-extra/boxmain"
 )
 
-var instance *boxbox.Box
-var instance_cancel context.CancelFunc
+var instance *BoxInstance
+var instanceMu sync.RWMutex
+
+func currentInstance() *BoxInstance {
+	instanceMu.RLock()
+	defer instanceMu.RUnlock()
+	return instance
+}
 
 func setupCore() {
-	boxmain.DisableColor()
-	//
 	neko_log.SetupLog(50*1024, "./neko.log")
-	//
-	neko_common.GetCurrentInstance = func() interface{} {
-		return instance
+	neko_common.GetCurrentInstance = func() interface{} { return currentInstance() }
+	neko_common.DialContext = func(ctx context.Context, specified interface{}, network, address string) (net.Conn, error) {
+		i, _ := specified.(*BoxInstance)
+		if i == nil {
+			i = currentInstance()
+		}
+		if i != nil {
+			return i.DialContext(ctx, network, address)
+		}
+		return neko_common.DialContextSystem(ctx, network, address)
 	}
-	neko_common.DialContext = func(ctx context.Context, specifiedInstance interface{}, network, addr string) (net.Conn, error) {
-		if i, ok := specifiedInstance.(*boxbox.Box); ok {
-			return boxapi.DialContext(ctx, i, network, addr)
+	neko_common.DialUDP = func(ctx context.Context, specified interface{}) (net.PacketConn, error) {
+		i, _ := specified.(*BoxInstance)
+		if i == nil {
+			i = currentInstance()
 		}
-		if instance != nil {
-			return boxapi.DialContext(ctx, instance, network, addr)
-		}
-		return neko_common.DialContextSystem(ctx, network, addr)
-	}
-	neko_common.DialUDP = func(ctx context.Context, specifiedInstance interface{}) (net.PacketConn, error) {
-		if i, ok := specifiedInstance.(*boxbox.Box); ok {
-			return boxapi.DialUDP(ctx, i)
-		}
-		if instance != nil {
-			return boxapi.DialUDP(ctx, instance)
+		if i != nil {
+			return i.DialUDP(ctx)
 		}
 		return neko_common.DialUDPSystem(ctx)
 	}
-	neko_common.CreateProxyHttpClient = func(specifiedInstance interface{}) *http.Client {
-		if i, ok := specifiedInstance.(*boxbox.Box); ok {
-			return boxapi.CreateProxyHttpClient(i)
+	neko_common.CreateProxyHttpClient = func(specified interface{}) *http.Client {
+		i, _ := specified.(*BoxInstance)
+		if i == nil {
+			i = currentInstance()
 		}
-		return boxapi.CreateProxyHttpClient(instance)
+		return createProxyHttpClient(i)
 	}
+}
+
+func createProxyHttpClient(i *BoxInstance) *http.Client {
+	if i == nil {
+		return probe.NewHTTPClient(nil)
+	}
+	client := probe.NewHTTPClient(i.DialContext)
+	client.Transport = &startupRetryTransport{base: client.Transport, instance: i}
+	return client
 }

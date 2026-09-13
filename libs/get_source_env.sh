@@ -1,9 +1,6 @@
-if [ ! -z $ENV_NEKORAY ]; then
-  export COMMIT_SING_BOX_EXTRA="d31d6da26a51a929349e0d75fd89dccbe20d1268"
-  export COMMIT_MATSURI_XRAY="01208225ee7e508044cca8eb6776a117bcecd997"
-fi
-
-if [ ! -z $ENV_SING_BOX_EXTRA ]; then
-  source libs/get_source_env.sh
-#  export COMMIT_LIBNEKO="a26f0dbb1467bd181f76e2560e956633d9637e9d"
-fi
+# Retained for callers of the original build helper.
+# Core versions now come directly from the module files; this script never
+# checks out or overwrites a developer's Xray/sing-box fork.
+CORE_SOURCE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export XRAY_MODULE_VERSION="$(cd "$CORE_SOURCE_ROOT/go/cmd/nekoray_core" && go list -m -f '{{.Version}}' github.com/xtls/xray-core)"
+export SING_BOX_MODULE_VERSION="$(cd "$CORE_SOURCE_ROOT/go/cmd/nekobox_core" && go list -m -f '{{.Version}}' github.com/sagernet/sing-box)"

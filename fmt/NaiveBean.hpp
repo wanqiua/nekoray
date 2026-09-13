@@ -30,9 +30,9 @@ namespace NekoGui_fmt {
 
         QString DisplayType() override { return "Naive"; };
 
-        int NeedExternal(bool isFirstProfile) override;
+        int NeedExternal(bool isFirstProfile, int targetCore = -1, const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
-        ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat) override;
+        ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat, const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
         bool TryParseLink(const QString &link);
 

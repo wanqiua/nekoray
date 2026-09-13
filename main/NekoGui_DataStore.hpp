@@ -95,9 +95,10 @@ namespace NekoGui {
         // Misc
         QString log_level = "warning";
         QString test_latency_url = "http://cp.cloudflare.com/";
+        int test_latency_timeout = 10000;
         QString test_download_url = "http://cachefly.cachefly.net/10mb.test";
         int test_download_timeout = 30;
-        int test_concurrent = 5;
+        int test_concurrent = 10;
         bool old_share_link_format = true;
         int traffic_loop_interval = 1000;
         bool connection_statistics = false;
@@ -164,6 +165,9 @@ namespace NekoGui {
         QString hotkey_system_proxy_menu = "";
 
         // Core
+        // Default for Auto nodes. Legacy coreType continues to own the loaded
+        // settings/routing files and is not changed during a connection.
+        int preferred_core = -1;
         int core_box_clash_api = -9090;
         QString core_box_clash_api_secret = "";
         QString core_box_underlying_dns = "";

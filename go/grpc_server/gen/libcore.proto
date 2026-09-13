@@ -6,6 +6,10 @@ option go_package = "grpc_server/gen";
 service LibcoreService {
   rpc Exit(EmptyReq) returns (EmptyResp) {}
   rpc Update(UpdateReq) returns (UpdateResp) {}
+  // Both calls use the same authenticated, instance-specific channel as Start.
+  rpc Capabilities(EmptyReq) returns (CapabilitiesResp) {}
+  // Local preflight only: never starts listeners, TUN, or remote connections.
+  rpc Check(LoadConfigReq) returns (CheckResp) {}
   //
   rpc Start(LoadConfigReq) returns (ErrorResp) {}
   rpc Stop(EmptyReq) returns (ErrorResp) {}
@@ -26,6 +30,36 @@ message LoadConfigReq {
   string core_config = 1;
   bool enable_nekoray_connections = 2;
   repeated string stats_outbounds = 3;
+}
+
+enum FailureCategory {
+  FailureNone = 0;
+  FailureRemote = 1;
+  FailureUnsupported = 2;
+  FailureConfig = 3;
+  FailureCore = 4;
+  FailureCancelled = 5;
+}
+
+message CapabilitiesResp {
+  string core_family = 1;
+  string core_version = 2;
+  // SHA-256 of the running executable; changes when this build changes.
+  string build_id = 3;
+  // Positive, compiled capabilities. Full parameter compatibility needs Check.
+  repeated string features = 4;
+  string source_revision = 5;
+  string wrapper_version = 6;
+  repeated string build_tags = 7;
+}
+
+message CheckResp {
+  string error = 1;
+  FailureCategory failure_category = 2;
+  string core_family = 3;
+  string core_version = 4;
+  string build_id = 5;
+  string config_hash = 6;
 }
 
 enum TestMode {
@@ -59,6 +93,10 @@ message TestResp {
   string error = 1;
   int32 ms = 2;
   string full_report = 3;
+  FailureCategory failure_category = 4;
+  string core_family = 5;
+  string core_version = 6;
+  string build_id = 7;
 }
 
 message QueryStatsReq{

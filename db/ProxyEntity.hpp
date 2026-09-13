@@ -3,6 +3,7 @@
 #include "main/NekoGui.hpp"
 #include "db/traffic/TrafficData.hpp"
 #include "fmt/AbstractBean.hpp"
+#include "db/ProfileTestResult.hpp"
 
 namespace NekoGui_fmt {
     class SocksHttpBean;
@@ -30,12 +31,28 @@ namespace NekoGui {
         int id = -1;
         int gid = 0;
         int latency = 0;
+        // Local policy, deliberately outside bean/protocol equality and share links.
+        int core_preference = 0; // 0 Auto, 1 Xray, 2 sing-box
+        QJsonObject test_results;
         std::shared_ptr<NekoGui_fmt::AbstractBean> bean;
         std::shared_ptr<NekoGui_traffic::TrafficData> traffic_data = std::make_shared<NekoGui_traffic::TrafficData>("");
 
         QString full_test_report;
 
         ProxyEntity(NekoGui_fmt::AbstractBean *bean, const QString &type_);
+
+        void RecordTestResult(const ProfileTestResult &result);
+
+        [[nodiscard]] ProfileTestResult LastTestResult(int core, const QString &scope = "next",
+                                                      const QString &mode = "url") const;
+
+        [[nodiscard]] bool HasValidTestResult(int core, const QString &buildId, const QString &fingerprint,
+                                            const QString &scope = "next", const QString &mode = "url") const;
+
+        [[nodiscard]] bool IsRemovalCandidate(int core, const QString &buildId, const QString &fingerprint,
+                                             const QString &mode = "url") const;
+
+        void MigrateLegacyTestResult();
 
         [[nodiscard]] QString DisplayLatency() const;
 
@@ -72,5 +89,12 @@ namespace NekoGui {
         [[nodiscard]] NekoGui_fmt::CustomBean *CustomBean() const {
             return (NekoGui_fmt::CustomBean *) bean.get();
         };
+
+    private:
+        // JsonStore supports strings and nested stores. Keep its representation
+        // synchronized in the methods above and the load/save callbacks.
+        QString test_results_json;
+
+        void SyncTestResults();
     };
 } // namespace NekoGui

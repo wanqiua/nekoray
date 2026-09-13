@@ -78,6 +78,7 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     D_LOAD_INT(inbound_socks_port)
     D_LOAD_INT_ENABLE(inbound_http_port, http_enable)
     D_LOAD_INT(test_concurrent)
+    D_LOAD_INT(test_latency_timeout)
     D_LOAD_INT(test_download_timeout)
     D_LOAD_STRING(test_latency_url)
     D_LOAD_STRING(test_download_url)
@@ -217,32 +218,12 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
         }
     });
 
-    // switch core
-    ui->switch_core_v2ray->setChecked(!IS_NEKO_BOX);
-    ui->switch_core_sing_box->setChecked(IS_NEKO_BOX);
-    auto switch_core_on_click = [=] {
-        int neko_core_new;
-        if (sender() == ui->switch_core_sing_box) {
-            if (IS_NEKO_BOX) return;
-            neko_core_new = NekoGui::CoreType::SING_BOX;
-        } else {
-            if (!IS_NEKO_BOX) return;
-            neko_core_new = NekoGui::CoreType::V2RAY;
-        }
-        QString core_name_new = dynamic_cast<QRadioButton *>(sender())->text();
-        if (QMessageBox::question(this, tr("Confirmation"),
-                                  tr("Switching the core to %1, click \"Yes\" to complete the switch and the program will restart. This feature may be unstable, please do not switch frequently.")
-                                      .arg(core_name_new)) == QMessageBox::StandardButton::Yes) {
-            QFile file;
-            file.setFileName("groups/coreType");
-            file.open(QIODevice::ReadWrite | QIODevice::Truncate);
-            file.write(Int2String(neko_core_new).toUtf8());
-            file.close();
-            MW_dialog_message("", "RestartProgram");
-        }
-    };
-    connect(ui->switch_core_v2ray, &QRadioButton::clicked, this, switch_core_on_click);
-    connect(ui->switch_core_sing_box, &QRadioButton::clicked, this, switch_core_on_click);
+    // This preference affects subsequent Auto connections, not the source
+    // settings file, active connection, or lifetime of the GUI.
+    ui->switch_core_v2ray->setChecked(NekoGui::PreferredCore() == NekoGui::CoreType::V2RAY);
+    ui->switch_core_sing_box->setChecked(NekoGui::PreferredCore() == NekoGui::CoreType::SING_BOX);
+    ui->switch_core_v2ray->setToolTip(tr("Default preferred core for future Auto connections. Current connection is kept."));
+    ui->switch_core_sing_box->setToolTip(ui->switch_core_v2ray->toolTip());
 
     // Mux
     D_LOAD_INT(mux_concurrency)
@@ -264,6 +245,10 @@ DialogBasicSettings::~DialogBasicSettings() {
 }
 
 void DialogBasicSettings::accept() {
+    const auto priorSettings = NekoGui::dataStore->ToJson({"preferred_core"});
+    const auto priorPreferredCore = NekoGui::dataStore->preferred_core;
+    NekoGui::dataStore->preferred_core = ui->switch_core_sing_box->isChecked()
+                                            ? NekoGui::CoreType::SING_BOX : NekoGui::CoreType::V2RAY;
     // Common
 
     D_SAVE_STRING(inbound_address)
@@ -272,6 +257,9 @@ void DialogBasicSettings::accept() {
     D_SAVE_INT(inbound_socks_port)
     D_SAVE_INT_ENABLE(inbound_http_port, http_enable)
     D_SAVE_INT(test_concurrent)
+    D_SAVE_INT(test_latency_timeout)
+    NekoGui::dataStore->test_concurrent = qBound(1, NekoGui::dataStore->test_concurrent, 64);
+    NekoGui::dataStore->test_latency_timeout = qBound(1000, NekoGui::dataStore->test_latency_timeout, 60000);
     D_SAVE_INT(test_download_timeout)
     D_SAVE_STRING(test_latency_url)
     D_SAVE_STRING(test_download_url)
@@ -340,6 +328,8 @@ void DialogBasicSettings::accept() {
     }
 
     QStringList str{"UpdateDataStore"};
+    if (priorPreferredCore != NekoGui::dataStore->preferred_core &&
+        priorSettings == NekoGui::dataStore->ToJson({"preferred_core"})) str << "DefaultCoreOnly";
     if (CACHE.needRestart) str << "NeedRestart";
     MW_dialog_message(Dialog_DialogBasicSettings, str.join(","));
     QDialog::accept();

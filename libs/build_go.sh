@@ -1,38 +1,52 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-source libs/env_deploy.sh
-[ "$GOOS" == "windows" ] && [ "$GOARCH" == "amd64" ] && DEST=$DEPLOYMENT/windows64 || true
-[ "$GOOS" == "windows" ] && [ "$GOARCH" == "arm64" ] && DEST=$DEPLOYMENT/windows-arm64 || true
-[ "$GOOS" == "linux" ] && [ "$GOARCH" == "amd64" ] && DEST=$DEPLOYMENT/linux64 || true
-[ "$GOOS" == "linux" ] && [ "$GOARCH" == "arm64" ] && DEST=$DEPLOYMENT/linux-arm64 || true
-[ "$GOOS" == "darwin" ] && [ "$GOARCH" == "amd64" ] && DEST=$DEPLOYMENT/macos-amd64 || true
-[ "$GOOS" == "darwin" ] && [ "$GOARCH" == "arm64" ] && DEST=$DEPLOYMENT/macos-arm64 || true
-if [ -z $DEST ]; then
-  echo "Please set GOOS GOARCH"
-  exit 1
-fi
-rm -rf $DEST
-mkdir -p $DEST
-
+SRC_ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$SRC_ROOT"
+export GOOS="${GOOS:-$(go env GOOS)}"
+export GOARCH="${GOARCH:-$(go env GOARCH)}"
 export CGO_ENABLED=0
 
-#### Go: updater ####
-pushd go/cmd/updater
-[ "$GOOS" == "darwin" ] || go build -o $DEST -trimpath -ldflags "-w -s"
-[ "$GOOS" == "linux" ] && mv $DEST/updater $DEST/launcher || true
-popd
+case "$GOOS/$GOARCH" in
+  windows/amd64) target=windows64 ;;
+  linux/amd64) target=linux64 ;;
+  windows/arm64|linux/arm64|darwin/amd64|darwin/arm64) target="$GOOS-$GOARCH" ;;
+  *) printf 'Unsupported target: %s/%s\n' "$GOOS" "$GOARCH" >&2; exit 1 ;;
+esac
 
-#### Go: nekoray_core ####
-neko_common="github.com/matsuridayo/libneko/neko_common"
-pushd ../Xray-core
-Version_Xray=$(git log --pretty=format:'%h' -n 1)
-popd
-pushd go/cmd/nekoray_core
-go build -v -o $DEST -trimpath -ldflags "-w -s -X $neko_common.Version_v2ray=$Version_Xray -X $neko_common.Version_neko=$version_standalone"
-popd
+DEST="$SRC_ROOT/deployment/$target"
+mkdir -p "$DEST"
+extension=""
+if [ "$GOOS" = windows ]; then extension=".exe"; fi
+version="nekoray-$(tr -d '\r\n' < nekoray_version.txt)-dual-core"
+tags="$(tr -d '\r\n' < libs/core_build_tags.txt)"
+ldflags="-w -s -X github.com/matsuridayo/libneko/neko_common.Version_neko=$version"
 
-#### Go: nekobox_core ####
-pushd go/cmd/nekobox_core
-go build -v -o $DEST -trimpath -ldflags "-w -s -X $neko_common.Version_neko=$version_standalone" -tags "with_clash_api,with_gvisor,with_quic,with_wireguard,with_utls,with_ech"
-popd
+for core in nekoray_core nekobox_core; do
+  (
+    cd "$SRC_ROOT/go/cmd/$core"
+    if [ "$core" = nekoray_core ]; then
+      export GOTOOLCHAIN=go1.21.13
+    else
+      export GOTOOLCHAIN=go1.26.4
+    fi
+    flags=()
+    if [ "$core" = nekobox_core ]; then flags=(-tags "$tags"); fi
+    if [ "${NKR_TEST_CORES:-0}" = 1 ]; then
+      go test "${flags[@]}" -count=1 -timeout 90s ./...
+    fi
+    go build -mod=readonly "${flags[@]}" -trimpath -ldflags "$ldflags" -o "$DEST/$core$extension" .
+  )
+done
+
+# Linux portable builds still need the launcher to set their Qt environment.
+# The GUI's legacy download/update RPC is disabled in this fork.
+if [ "$GOOS" = linux ] || [ "${NKR_BUILD_UPDATER:-0}" = 1 ]; then
+  (
+    cd "$SRC_ROOT/go/cmd/updater"
+    name="updater$extension"
+    if [ "$GOOS" = linux ]; then name=launcher; fi
+    go build -trimpath -ldflags "-w -s" -o "$DEST/$name" .
+  )
+fi
+printf 'Cores built in %s\n' "$DEST"

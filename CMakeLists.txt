@@ -118,6 +118,7 @@ if (NKR_NO_QHOTKEY)
 else ()
     set(QHOTKEY_INSTALL OFF)
     set(BUILD_SHARED_LIBS OFF)
+    set(QT_DEFAULT_MAJOR_VERSION ${QT_VERSION_MAJOR})
     add_subdirectory(3rdparty/QHotkey)
     list(APPEND NKR_EXTERNAL_TARGETS qhotkey)
 endif ()
@@ -164,6 +165,7 @@ set(PROJECT_SOURCES
         db/traffic/TrafficLooper.cpp
         db/ProfileFilter.cpp
         db/ConfigBuilder.cpp
+        db/CoreCapabilities.cpp
 
         fmt/AbstractBean.cpp
         fmt/Bean2CoreObj_ray.cpp
@@ -176,15 +178,21 @@ set(PROJECT_SOURCES
         sub/GroupUpdater.cpp
 
         sys/ExternalProcess.cpp
+        sys/CoreManager.cpp
+        sys/CoreManager.hpp
+        sys/OwnedElevatedProcess.cpp
         sys/AutoRun.cpp
 
         ui/ThemeManager.cpp
         ui/Icon.cpp
 
         ui/mainwindow_grpc.cpp
+        ui/mainwindow_core.cpp
+        ui/mainwindow_tun.cpp
         ui/mainwindow.cpp
         ui/mainwindow.h
         ui/mainwindow.ui
+        ui/UrlImportDialog.hpp
 
         ui/edit/dialog_edit_profile.h
         ui/edit/dialog_edit_profile.cpp
@@ -330,6 +338,47 @@ target_link_libraries(nekoray PRIVATE
         ${PLATFORM_LIBRARIES}
 )
 
+if (MSVC AND MSVC_VERSION GREATER_EQUAL 1950)
+    target_compile_options(nekoray PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/qt_msvc_compat.h")
+    if (TARGET qhotkey)
+        target_compile_options(qhotkey PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/qt_msvc_compat.h")
+    endif ()
+endif ()
+
 if (QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(nekoray)
+endif ()
+
+option(NKR_BUILD_TESTS "Build GUI and batch regression tests" OFF)
+if (NKR_BUILD_TESTS)
+    find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
+    enable_testing()
+    set(GUI_TEST_SOURCES ${PROJECT_SOURCES})
+    list(REMOVE_ITEM GUI_TEST_SOURCES main/main.cpp)
+    add_executable(nekoray_gui_tests tests/gui_regression_test.cpp ${GUI_TEST_SOURCES} ${CMAKE_BINARY_DIR}/translations.qrc)
+    set_target_properties(nekoray_gui_tests PROPERTIES AUTOMOC ON AUTOUIC ON AUTORCC ON)
+    target_link_libraries(nekoray_gui_tests PRIVATE
+            Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Svg Qt${QT_VERSION_MAJOR}::Test
+            Threads::Threads ${NKR_EXTERNAL_TARGETS} ${PLATFORM_LIBRARIES})
+    if (MSVC AND MSVC_VERSION GREATER_EQUAL 1950)
+        target_compile_options(nekoray_gui_tests PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/qt_msvc_compat.h")
+    endif ()
+    foreach (CORE ray box)
+        add_test(NAME gui_${CORE} COMMAND nekoray_gui_tests -o "${CMAKE_BINARY_DIR}/gui_${CORE}.log,txt" -o -,txt)
+        set_tests_properties(gui_${CORE} PROPERTIES
+                ENVIRONMENT "QT_QPA_PLATFORM=offscreen;NEKORAY_TEST_CORE=${CORE}"
+                TIMEOUT 180 RUN_SERIAL TRUE)
+    endforeach ()
+
+    add_executable(nekoray_capabilities_tests tests/core_capabilities_test.cpp ${GUI_TEST_SOURCES} ${CMAKE_BINARY_DIR}/translations.qrc)
+    set_target_properties(nekoray_capabilities_tests PROPERTIES AUTOMOC ON AUTOUIC ON AUTORCC ON)
+    target_link_libraries(nekoray_capabilities_tests PRIVATE
+            Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Svg Qt${QT_VERSION_MAJOR}::Test
+            Threads::Threads ${NKR_EXTERNAL_TARGETS} ${PLATFORM_LIBRARIES})
+    if (MSVC AND MSVC_VERSION GREATER_EQUAL 1950)
+        target_compile_options(nekoray_capabilities_tests PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/qt_msvc_compat.h")
+    endif ()
+    add_test(NAME core_capabilities COMMAND nekoray_capabilities_tests)
+    set_tests_properties(core_capabilities PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 RUN_SERIAL TRUE)
+    add_subdirectory(tests)
 endif ()

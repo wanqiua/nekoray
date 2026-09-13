@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -11,6 +12,37 @@ import (
 // Authenticator exposes a function for authenticating requests.
 type Authenticator struct {
 	Token string
+}
+
+func (a Authenticator) UnaryServerInterceptor(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (response any, failure error) {
+	ctx, err := a.Authenticate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// A bad custom configuration must not terminate every running proxy/test.
+	// Do not print the panic value: upstream parsers may embed credentials.
+	defer func() {
+		if recover() != nil {
+			response = nil
+			failure = status.Error(codes.Internal, "core request failed")
+		}
+	}()
+	return handler(ctx, req)
+}
+
+type authenticatedStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *authenticatedStream) Context() context.Context { return s.ctx }
+
+func (a Authenticator) StreamServerInterceptor(srv any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	ctx, err := a.Authenticate(stream.Context())
+	if err != nil {
+		return err
+	}
+	return handler(srv, &authenticatedStream{ServerStream: stream, ctx: ctx})
 }
 
 // Authenticate checks that a token exists and is valid. It stores the user

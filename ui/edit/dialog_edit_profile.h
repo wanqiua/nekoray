@@ -7,6 +7,9 @@
 
 #include "ui/widget/FloatCheckBox.h"
 
+class QButtonGroup;
+class QLabel;
+
 namespace Ui {
     class DialogEditProfile;
 }
@@ -44,7 +47,12 @@ private:
     QString type;
     int groupId;
     bool newEnt = false;
+    bool loadingEditor = false;
     std::shared_ptr<NekoGui::ProxyEntity> ent;
+    std::shared_ptr<NekoGui::ProxyEntity> originalEnt;
+    QButtonGroup *coreChoices = nullptr;
+    QLabel *coreReason = nullptr;
+    int pendingCorePreference = 0;
 
     QString network_title_base;
 
@@ -57,6 +65,12 @@ private:
     void typeSelected(const QString &newType);
 
     bool onEnd();
+
+    void refresh_core_choice();
+
+    void save_stream_fields(NekoGui_fmt::AbstractBean *bean) const;
+
+    bool commit_draft();
 
     void editor_cache_updated_impl();
 

@@ -17,7 +17,8 @@
         result.error = f.errorString();                           \
     }                                                             \
     f.close();                                                    \
-    auto TempFile = QFileInfo(f).absoluteFilePath();
+    auto TempFile = QFileInfo(f).absoluteFilePath();                \
+    result.generatedFiles.insert(TempFile, data);
 
 namespace NekoGui_fmt {
     // -1: Cannot use this config
@@ -25,9 +26,11 @@ namespace NekoGui_fmt {
     // 1: Mapping External
     // 2: Direct External
 
-    int NaiveBean::NeedExternal(bool isFirstProfile) {
+    int NaiveBean::NeedExternal(bool isFirstProfile, int targetCore, const NekoGui::DataStore *runtimeSettings) {
+        if (runtimeSettings == nullptr) runtimeSettings = NekoGui::dataStore;
+        if (targetCore < 0) targetCore = NekoGui::coreType;
         if (isFirstProfile) {
-            if (NekoGui::dataStore->spmode_vpn) {
+            if (runtimeSettings->spmode_vpn) {
                 return 1;
             }
             return 2;
@@ -35,10 +38,12 @@ namespace NekoGui_fmt {
         return 1;
     }
 
-    int QUICBean::NeedExternal(bool isFirstProfile) {
+    int QUICBean::NeedExternal(bool isFirstProfile, int targetCore, const NekoGui::DataStore *runtimeSettings) {
+        if (runtimeSettings == nullptr) runtimeSettings = NekoGui::dataStore;
+        if (targetCore < 0) targetCore = NekoGui::coreType;
         auto hysteriaCore = [=] {
             if (isFirstProfile) {
-                if (NekoGui::dataStore->spmode_vpn && hyProtocol != hysteria_protocol_facktcp && hopPort.trimmed().isEmpty()) {
+                if (runtimeSettings->spmode_vpn && hyProtocol != hysteria_protocol_facktcp && hopPort.trimmed().isEmpty()) {
                     return 1;
                 }
                 return 2;
@@ -52,7 +57,7 @@ namespace NekoGui_fmt {
 
         auto hysteria2Core = [=] {
             if (isFirstProfile) {
-                if (NekoGui::dataStore->spmode_vpn) {
+                if (runtimeSettings->spmode_vpn) {
                     return 1;
                 }
                 return 2;
@@ -62,7 +67,7 @@ namespace NekoGui_fmt {
 
         auto tuicCore = [=] {
             if (isFirstProfile) {
-                if (NekoGui::dataStore->spmode_vpn) {
+                if (runtimeSettings->spmode_vpn) {
                     return 1;
                 }
                 return 2;
@@ -70,7 +75,7 @@ namespace NekoGui_fmt {
             return 1;
         };
 
-        if (IS_NEKO_BOX) {
+        if (targetCore == NekoGui::CoreType::SING_BOX) {
             if (!forceExternal && (proxy_type == proxy_TUIC || hyProtocol == hysteria_protocol_udp)) {
                 // sing-box support
                 return 0;
@@ -87,13 +92,16 @@ namespace NekoGui_fmt {
         }
     }
 
-    int CustomBean::NeedExternal(bool isFirstProfile) {
+    int CustomBean::NeedExternal(bool isFirstProfile, int targetCore, const NekoGui::DataStore *runtimeSettings) {
+        if (runtimeSettings == nullptr) runtimeSettings = NekoGui::dataStore;
+        if (targetCore < 0) targetCore = NekoGui::coreType;
         if (core == "internal" || core == "internal-full") return 0;
         return 1;
     }
 
-    ExternalBuildResult NaiveBean::BuildExternal(int mapping_port, int socks_port, int external_stat) {
-        ExternalBuildResult result{NekoGui::dataStore->extraCore->Get("naive")};
+    ExternalBuildResult NaiveBean::BuildExternal(int mapping_port, int socks_port, int external_stat, const NekoGui::DataStore *runtimeSettings) {
+        if (runtimeSettings == nullptr) runtimeSettings = NekoGui::dataStore;
+        ExternalBuildResult result{runtimeSettings->extraCore->Get("naive")};
 
         auto is_direct = external_stat == 2;
         auto domain_address = sni.isEmpty() ? serverAddress : sni;
@@ -128,9 +136,10 @@ namespace NekoGui_fmt {
         return result;
     }
 
-    ExternalBuildResult QUICBean::BuildExternal(int mapping_port, int socks_port, int external_stat) {
+    ExternalBuildResult QUICBean::BuildExternal(int mapping_port, int socks_port, int external_stat, const NekoGui::DataStore *runtimeSettings) {
+        if (runtimeSettings == nullptr) runtimeSettings = NekoGui::dataStore;
         if (proxy_type == proxy_TUIC) {
-            ExternalBuildResult result{NekoGui::dataStore->extraCore->Get("tuic")};
+            ExternalBuildResult result{runtimeSettings->extraCore->Get("tuic")};
 
             QJsonObject relay;
 
@@ -175,7 +184,7 @@ namespace NekoGui_fmt {
 
             return result;
         } else if (proxy_type == proxy_Hysteria2) {
-            ExternalBuildResult result{NekoGui::dataStore->extraCore->Get("hysteria2")};
+            ExternalBuildResult result{runtimeSettings->extraCore->Get("hysteria2")};
 
             QJsonObject config;
 
@@ -244,7 +253,7 @@ namespace NekoGui_fmt {
             return result;
 
         } else { // Hysteria
-            ExternalBuildResult result{NekoGui::dataStore->extraCore->Get("hysteria")};
+            ExternalBuildResult result{runtimeSettings->extraCore->Get("hysteria")};
 
             QJsonObject config;
 
@@ -305,8 +314,9 @@ namespace NekoGui_fmt {
         }
     }
 
-    ExternalBuildResult CustomBean::BuildExternal(int mapping_port, int socks_port, int external_stat) {
-        ExternalBuildResult result{NekoGui::dataStore->extraCore->Get(core)};
+    ExternalBuildResult CustomBean::BuildExternal(int mapping_port, int socks_port, int external_stat, const NekoGui::DataStore *runtimeSettings) {
+        if (runtimeSettings == nullptr) runtimeSettings = NekoGui::dataStore;
+        ExternalBuildResult result{runtimeSettings->extraCore->Get(core)};
 
         result.arguments = command; // TODO split?
 

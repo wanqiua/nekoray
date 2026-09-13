@@ -24,9 +24,9 @@ namespace NekoGui_fmt {
 
         QString DisplayType() override { return proxy_type == proxy_VLESS ? "VLESS" : "Trojan"; };
 
-        CoreObjOutboundBuildResult BuildCoreObjV2Ray() override;
+        CoreObjOutboundBuildResult BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
-        CoreObjOutboundBuildResult BuildCoreObjSingBox() override;
+        CoreObjOutboundBuildResult BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
         bool TryParseLink(const QString &link);
 

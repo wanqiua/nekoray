@@ -4,10 +4,34 @@
 #include "sys/ExternalProcess.hpp"
 
 namespace NekoGui {
+    // Capture on the GUI thread, then pass the same immutable context through
+    // preflight, start, rollback and background probes. Never change coreType
+    // temporarily to build a configuration for a different core.
+    struct BuildConfigContext {
+        int targetCore = CoreType::V2RAY;
+        int sourceCore = CoreType::V2RAY;
+        std::shared_ptr<DataStore> settings;
+        QByteArray hookSource;
+        QString geoipPath;
+        QString geositePath;
+        bool externalTun = false;
+        int tunProxyPort = 0;
+        QStringList tunBypassProcessPaths;
+
+        [[nodiscard]] QByteArray Fingerprint(bool forTest = false) const;
+    };
+
+    BuildConfigContext CaptureBuildConfigContext(int targetCore, bool externalTun = false);
+
     class BuildConfigResult {
     public:
         QString error;
         QJsonObject coreConfig;
+        int targetCore = -1;
+        bool needKeepVpnOff = false;
+        QMap<int, QString> generatedLocalPorts;
+
+        [[nodiscard]] QByteArray Fingerprint() const;
 
         QList<std::shared_ptr<NekoGui_traffic::TrafficData>> outboundStats; // all, but not including "bypass" "block"
         std::shared_ptr<NekoGui_traffic::TrafficData> outboundStat;         // main
@@ -22,6 +46,12 @@ namespace NekoGui {
         std::shared_ptr<ProxyEntity> ent;
         bool forTest;
         bool forExport;
+        BuildConfigContext context;
+
+        [[nodiscard]] bool IsSingBox() const { return context.targetCore == CoreType::SING_BOX; }
+        [[nodiscard]] bool InternalTun() const {
+            return IsSingBox() && context.settings->vpn_internal_tun && !context.externalTun;
+        }
 
         // priv
         QList<int> globalProfiles;
@@ -45,6 +75,10 @@ namespace NekoGui {
     };
 
     std::shared_ptr<BuildConfigResult> BuildConfig(const std::shared_ptr<ProxyEntity> &ent, bool forTest, bool forExport);
+    std::shared_ptr<BuildConfigResult> BuildConfig(const std::shared_ptr<ProxyEntity> &ent, bool forTest, bool forExport,
+                                                 int targetCore);
+    std::shared_ptr<BuildConfigResult> BuildConfig(const std::shared_ptr<ProxyEntity> &ent, bool forTest, bool forExport,
+                                                 const BuildConfigContext &context);
 
     void BuildConfigV2Ray(const std::shared_ptr<BuildConfigStatus> &status);
 
@@ -56,6 +90,8 @@ namespace NekoGui {
                                const std::shared_ptr<BuildConfigStatus> &status);
 
     QString WriteVPNSingBoxConfig();
+    QString WriteVPNSingBoxConfig(const BuildConfigContext &context);
+    std::shared_ptr<BuildConfigResult> BuildVPNSingBoxConfig(const BuildConfigContext &context);
 
     QString WriteVPNLinuxScript(const QString &protectPath, const QString &configPath);
 } // namespace NekoGui

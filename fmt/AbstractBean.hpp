@@ -22,6 +22,9 @@ namespace NekoGui_fmt {
         //
         QString error;
         QString config_export;
+        // Generated temporary paths are operational details, not node identity.
+        // Retain their content so test fingerprints can hash the actual config.
+        QMap<QString, QByteArray> generatedFiles;
     };
 
     class AbstractBean : public JsonStore {
@@ -57,13 +60,15 @@ namespace NekoGui_fmt {
 
         //
 
-        virtual int NeedExternal(bool isFirstProfile) { return 0; };
+        virtual int NeedExternal(bool isFirstProfile, int targetCore = -1,
+                                 const NekoGui::DataStore *runtimeSettings = nullptr) { return 0; };
 
-        virtual CoreObjOutboundBuildResult BuildCoreObjV2Ray() { return {}; };
+        virtual CoreObjOutboundBuildResult BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings = nullptr) { return {}; };
 
-        virtual CoreObjOutboundBuildResult BuildCoreObjSingBox() { return {}; };
+        virtual CoreObjOutboundBuildResult BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings = nullptr) { return {}; };
 
-        virtual ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat) { return {}; };
+        virtual ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat,
+                                                  const NekoGui::DataStore *runtimeSettings = nullptr) { return {}; };
 
         virtual QString ToShareLink() { return {}; };
     };

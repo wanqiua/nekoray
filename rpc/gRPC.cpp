@@ -10,10 +10,11 @@
 #include <QCoreApplication>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QNetworkProxy>
 #include <QTimer>
 #include <QtEndian>
 #include <QThread>
-#include <QMutex>
+#include <QSemaphore>
 #include <QAbstractNetworkCache>
 
 namespace QtGrpc {
@@ -71,13 +72,13 @@ namespace QtGrpc {
 #endif
             request.setHeader(QNetworkRequest::ContentTypeHeader, QLatin1String{"application/grpc"});
             request.setRawHeader("Cache-Control", "no-store");
-            request.setRawHeader(GrpcAcceptEncodingHeader, QByteArray{"identity,deflate,gzip"});
+            request.setRawHeader(GrpcAcceptEncodingHeader, QByteArray{"identity"});
             request.setRawHeader(AcceptEncodingHeader, QByteArray{"identity,gzip"});
             request.setRawHeader(TEHeader, QByteArray{"trailers"});
             request.setRawHeader("nekoray_auth", nekoray_auth);
 
             QByteArray msg(GrpcMessageSizeHeaderSize, '\0');
-            *reinterpret_cast<int *>(msg.data() + 1) = qToBigEndian((int) args.size());
+            qToBigEndian<quint32>(quint32(args.size()), msg.data() + 1);
             msg += args;
             // qDebug() << "SEND: " << msg.size();
 
@@ -102,11 +103,19 @@ namespace QtGrpc {
                 statusCode = QNetworkReply::NetworkError::ProtocolUnknownError;
                 return {};
             }
+            const auto framed = networkReply->readAll();
+            if (framed.size() < GrpcMessageSizeHeaderSize || framed.at(0) != 0 ||
+                qFromBigEndian<quint32>(framed.constData() + 1) != quint32(framed.size() - GrpcMessageSizeHeaderSize)) {
+                statusCode = QNetworkReply::ProtocolFailure;
+                return {};
+            }
             statusCode = QNetworkReply::NetworkError::NoError;
-            return networkReply->readAll().mid(GrpcMessageSizeHeaderSize);
+            return framed.mid(GrpcMessageSizeHeaderSize);
         }
 
-        QNetworkReply::NetworkError call(const QString &method, const QString &service, const QByteArray &args, QByteArray &qByteArray, int timeout_ms) {
+        QNetworkReply::NetworkError call(const QString &method, const QString &service, const QByteArray &args, QByteArray &qByteArray, int timeout_ms,
+                                         const std::atomic_bool *cancelled) {
+            if (cancelled != nullptr && cancelled->load()) return QNetworkReply::OperationCanceledError;
             QNetworkReply *networkReply = post(method, service, args);
 
             QTimer *abortTimer = nullptr;
@@ -116,6 +125,15 @@ namespace QtGrpc {
                 abortTimer->setInterval(timeout_ms);
                 QObject::connect(abortTimer, &QTimer::timeout, networkReply, &QNetworkReply::abort);
                 abortTimer->start();
+            }
+
+            QTimer cancellationTimer;
+            if (cancelled != nullptr) {
+                cancellationTimer.setInterval(25);
+                QObject::connect(&cancellationTimer, &QTimer::timeout, networkReply, [=] {
+                    if (cancelled->load()) networkReply->abort();
+                });
+                cancellationTimer.start();
             }
 
             {
@@ -146,41 +164,38 @@ namespace QtGrpc {
             //
             thread = new QThread;
             nm = new QNetworkAccessManager();
+            nm->setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
             nm->setCache(new NoCache);
             nm->moveToThread(thread);
+            QObject::connect(thread, &QThread::finished, nm, &QObject::deleteLater);
             thread->start();
         }
 
         ~Http2GrpcChannelPrivate() {
-            nm->deleteLater();
             thread->quit();
             thread->wait();
-            thread->deleteLater();
+            delete thread;
         }
 
         QNetworkReply::NetworkError Call(const QString &methodName,
                                          const google::protobuf::Message &req, google::protobuf::Message *rsp,
-                                         int timeout_ms = 0) {
-            if (!NekoGui::dataStore->core_running) return QNetworkReply::NetworkError(-1919);
-
+                                         int timeout_ms = 0, const std::atomic_bool *cancelled = nullptr) {
             std::string reqStr;
             req.SerializeToString(&reqStr);
             auto requestArray = QByteArray::fromStdString(reqStr);
 
             QByteArray responseArray;
             QNetworkReply::NetworkError err;
-            QMutex lock;
-            lock.lock();
+            QSemaphore finished;
 
             runOnUiThread(
                 [&] {
-                    err = call(methodName, serviceName, requestArray, responseArray, timeout_ms);
-                    lock.unlock();
+                    err = call(methodName, serviceName, requestArray, responseArray, timeout_ms, cancelled);
+                    finished.release();
                 },
                 nm);
 
-            lock.lock();
-            lock.unlock();
+            finished.acquire();
             // qDebug() << "rsp err" << err;
             // qDebug() << "rsp array" << responseArray;
 
@@ -203,6 +218,8 @@ namespace NekoGui_rpc {
         this->onError = std::move(onError);
     }
 
+    Client::~Client() = default;
+
 #define NOT_OK      \
     *rpcOK = false; \
     onError(QString("QNetworkReply::NetworkError code: %1\n").arg(status));
@@ -213,9 +230,28 @@ namespace NekoGui_rpc {
         default_grpc_channel->Call("Exit", request, &reply, 500);
     }
 
+    libcore::CapabilitiesResp Client::Capabilities(bool *rpcOK) {
+        libcore::EmptyReq request;
+        libcore::CapabilitiesResp reply;
+        const auto status = default_grpc_channel->Call("Capabilities", request, &reply, 3000);
+        *rpcOK = status == QNetworkReply::NoError;
+        return reply;
+    }
+
+    libcore::CheckResp Client::Check(bool *rpcOK, const libcore::LoadConfigReq &request) {
+        libcore::CheckResp reply;
+        const auto status = default_grpc_channel->Call("Check", request, &reply, 15000);
+        *rpcOK = status == QNetworkReply::NoError;
+        if (!*rpcOK) {
+            reply.set_error("Core configuration preflight RPC failed (network error " + std::to_string(int(status)) + ")");
+            reply.set_failure_category(libcore::FailureCore);
+        }
+        return reply;
+    }
+
     QString Client::Start(bool *rpcOK, const libcore::LoadConfigReq &request) {
         libcore::ErrorResp reply;
-        auto status = default_grpc_channel->Call("Start", request, &reply);
+        auto status = default_grpc_channel->Call("Start", request, &reply, 15000);
 
         if (status == QNetworkReply::NoError) {
             *rpcOK = true;
@@ -229,7 +265,7 @@ namespace NekoGui_rpc {
     QString Client::Stop(bool *rpcOK) {
         libcore::EmptyReq request;
         libcore::ErrorResp reply;
-        auto status = default_grpc_channel->Call("Stop", request, &reply);
+        auto status = default_grpc_channel->Call("Stop", request, &reply, 15000);
 
         if (status == QNetworkReply::NoError) {
             *rpcOK = true;
@@ -270,14 +306,32 @@ namespace NekoGui_rpc {
     //
 
     libcore::TestResp Client::Test(bool *rpcOK, const libcore::TestReq &request) {
+        return CreateTestClient()->Test(rpcOK, request);
+    }
+
+    std::unique_ptr<TestClient> Client::CreateTestClient() const {
+        return std::unique_ptr<TestClient>(new TestClient(make_grpc_channel(), onError));
+    }
+
+    TestClient::TestClient(std::unique_ptr<QtGrpc::Http2GrpcChannelPrivate> channel_,
+                           std::function<void(const QString &)> onError_)
+        : channel(std::move(channel_)), onError(std::move(onError_)) {}
+
+    TestClient::~TestClient() = default;
+
+    libcore::TestResp TestClient::Test(bool *rpcOK, const libcore::TestReq &request, const std::atomic_bool *cancelled) {
         libcore::TestResp reply;
-        auto status = make_grpc_channel()->Call("Test", request, &reply);
+        auto status = channel->Call("Test", request, &reply, 0, cancelled);
 
         if (status == QNetworkReply::NoError) {
             *rpcOK = true;
             return reply;
         } else {
-            NOT_OK
+            *rpcOK = false;
+            reply.set_error("Core RPC request failed (network error " + std::to_string(int(status)) + ")");
+            reply.set_failure_category(cancelled != nullptr && cancelled->load()
+                                           ? libcore::FailureCancelled : libcore::FailureCore);
+            if (cancelled == nullptr || !cancelled->load()) onError(QString::fromStdString(reply.error()));
             return reply;
         }
     }

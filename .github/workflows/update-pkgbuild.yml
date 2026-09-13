@@ -10,6 +10,7 @@ on:
 
 jobs:
   update:
+    if: github.repository == 'MatsuriDayo/nekoray'
     runs-on: ubuntu-latest
     steps:
       - uses: chitang233/aur-pkgbuild-builder@main

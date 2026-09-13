@@ -20,8 +20,9 @@ DialogVPNSettings::DialogVPNSettings(QWidget *parent) : QDialog(parent), ui(new 
     ui->hide_console->setVisible(false);
 #endif
     ui->strict_route->setChecked(NekoGui::dataStore->vpn_strict_route);
-    ui->single_core->setVisible(IS_NEKO_BOX);
-    ui->single_core->setChecked(NekoGui::dataStore->vpn_internal_tun);
+    // R1 always owns TUN independently of the selected proxy core. Preserve
+    // the old setting on disk for compatibility, but do not offer this mode.
+    ui->single_core->hide();
     //
     D_LOAD_STRING_PLAIN(vpn_rule_cidr)
     D_LOAD_STRING_PLAIN(vpn_rule_process)
@@ -53,28 +54,19 @@ void DialogVPNSettings::accept() {
     NekoGui::dataStore->vpn_hide_console = ui->hide_console->isChecked();
     NekoGui::dataStore->vpn_strict_route = ui->strict_route->isChecked();
     NekoGui::dataStore->vpn_rule_white = ui->whitelist_mode->isChecked();
-    bool isInternalChanged = NekoGui::dataStore->vpn_internal_tun != ui->single_core->isChecked();
-    NekoGui::dataStore->vpn_internal_tun = ui->single_core->isChecked();
     //
     D_SAVE_STRING_PLAIN(vpn_rule_cidr)
     D_SAVE_STRING_PLAIN(vpn_rule_process)
     //
-    QStringList msg{"UpdateDataStore"};
-    if (isInternalChanged) {
-        msg << "NeedRestart";
-    } else {
-        msg << "VPNChanged";
-    }
+    QStringList msg{"UpdateDataStore", "VPNChanged"};
     MW_dialog_message("", msg.join(","));
     QDialog::accept();
 }
 
 void DialogVPNSettings::on_troubleshooting_clicked() {
     auto r = QMessageBox::information(this, tr("Troubleshooting"),
-                                      tr("If you have trouble starting VPN, you can force reset nekobox_core process here.\n\n"
-                                         "If still not working, see documentation for more information.\n"
-                                         "https://matsuridayo.github.io/n-configuration/#vpn-tun"),
-                                      tr("Reset"), tr("Cancel"), "",
+                                      tr("无法启用 TUN 时，可以在这里停止本程序启动的 TUN 辅助进程，然后重新开启 TUN。"),
+                                      tr("停止 TUN"), tr("Cancel"), "",
                                       1, 1);
     if (r == 0) {
         GetMainWindow()->StopVPNProcess(true);

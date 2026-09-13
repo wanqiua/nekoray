@@ -1,6 +1,47 @@
 #include "ProfileFilter.hpp"
 
+#include <QCryptographicHash>
+#include <QJsonDocument>
+
 namespace NekoGui {
+
+    QString ProfileFilter::SubscriptionIdentity(const std::shared_ptr<ProxyEntity> &ent) {
+        if (!ent || !ent->bean || ent->type.isEmpty() || ent->bean->version == -114514) return {};
+        auto identity = ent->type.toUtf8() + '\0';
+        identity += QJsonDocument(ent->bean->ToJson({"name"})).toJson(QJsonDocument::Compact);
+        return QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+    }
+
+    SubscriptionProfileMatches ProfileFilter::MatchSubscription(
+        const QList<std::shared_ptr<ProxyEntity>> &existing,
+        const QList<std::shared_ptr<ProxyEntity>> &incoming, int groupId) {
+        QMap<QString, QList<std::shared_ptr<ProxyEntity>>> oldByIdentity;
+        QMap<QString, int> newCounts;
+        for (const auto &profile: existing) {
+            if (!profile || profile->gid != groupId) continue;
+            const auto key = SubscriptionIdentity(profile);
+            if (!key.isEmpty()) oldByIdentity[key].append(profile);
+        }
+        for (const auto &profile: incoming) {
+            const auto key = SubscriptionIdentity(profile);
+            if (!key.isEmpty()) ++newCounts[key];
+        }
+
+        SubscriptionProfileMatches matches;
+        for (const auto &profile: incoming) {
+            const auto key = SubscriptionIdentity(profile);
+            const auto candidates = oldByIdentity.value(key);
+            if (!key.isEmpty() && (newCounts.value(key) > 1 || candidates.size() > 1)) {
+                ++matches.ambiguous_count;
+                matches.existing_for_incoming.append(nullptr);
+            } else if (!key.isEmpty() && newCounts.value(key) == 1 && candidates.size() == 1) {
+                matches.existing_for_incoming.append(candidates.first());
+            } else {
+                matches.existing_for_incoming.append(nullptr);
+            }
+        }
+        return matches;
+    }
 
     QString ProfileFilter_ent_key(const std::shared_ptr<NekoGui::ProxyEntity> &ent, bool by_address) {
         by_address &= ent->type != "custom";

@@ -232,6 +232,7 @@ namespace NekoGui {
 
         _add(new configItem("user_agent2", &user_agent, itemType::string));
         _add(new configItem("test_url", &test_latency_url, itemType::string));
+        _add(new configItem("test_latency_timeout", &test_latency_timeout, itemType::integer));
         _add(new configItem("test_url_dl", &test_download_url, itemType::string));
         _add(new configItem("test_dl_timeout", &test_download_timeout, itemType::integer));
         _add(new configItem("current_group", &current_group, itemType::integer));
@@ -282,6 +283,7 @@ namespace NekoGui {
         _add(new configItem("max_log_line", &max_log_line, itemType::integer));
         _add(new configItem("splitter_state", &splitter_state, itemType::string));
         _add(new configItem("utlsFingerprint", &utlsFingerprint, itemType::string));
+        _add(new configItem("preferred_core", &preferred_core, itemType::integer));
         _add(new configItem("core_box_clash_api", &core_box_clash_api, itemType::integer));
         _add(new configItem("core_box_clash_api_secret", &core_box_clash_api_secret, itemType::string));
         _add(new configItem("core_box_underlying_dns", &core_box_underlying_dns, itemType::string));

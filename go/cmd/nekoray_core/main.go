@@ -4,17 +4,13 @@ import (
 	"fmt"
 	"grpc_server"
 	"os"
-	_ "unsafe"
 
 	"github.com/matsuridayo/libneko/neko_common"
+	"github.com/xtls/xray-core/core"
 )
 
-//go:linkname build github.com/xtls/xray-core/core.build
-var build string
-
 func main() {
-	build = "Matsuridayo/nekoray"
-	fmt.Println("Xray:", neko_common.Version_v2ray, "NekoRay:", neko_common.Version_neko)
+	fmt.Println("Xray:", core.Version(), "(Matsuri compatibility)", "NekoRay:", neko_common.Version_neko)
 	fmt.Println()
 
 	// nekoray_core
@@ -25,7 +21,7 @@ func main() {
 	}
 
 	// tool
-	if len(os.Args) > 1 && os.Args[1] == "tool" {
+	if len(os.Args) > 2 && os.Args[1] == "tool" {
 		ToolBox()
 		return
 	}

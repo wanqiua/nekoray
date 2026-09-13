@@ -3,15 +3,24 @@
 #include <QString>
 #include <QList>
 #include <QMutex>
+#include <atomic>
+#include <memory>
 
 #include "TrafficData.hpp"
+
+namespace NekoGui_rpc { class Client; }
 
 namespace NekoGui_traffic {
     class TrafficLooper {
     public:
-        bool loop_enabled = false;
-        bool looping = false;
+        std::atomic_bool loop_enabled{false};
+        std::atomic_bool looping{false};
+        std::atomic<quint64> generation{0};
         QMutex loop_mutex;
+#ifndef NKR_NO_GRPC
+        std::shared_ptr<NekoGui_rpc::Client> client;
+        std::shared_ptr<NekoGui_rpc::Client> direct_client;
+#endif
 
         QList<std::shared_ptr<TrafficData>> items;
         TrafficData *proxy = nullptr;
@@ -23,9 +32,9 @@ namespace NekoGui_traffic {
     private:
         TrafficData *bypass = new TrafficData("bypass");
 
-        [[nodiscard]] static TrafficData *update_stats(TrafficData *item);
+        [[nodiscard]] TrafficData *update_stats(TrafficData *item);
 
-        [[nodiscard]] static QJsonArray get_connection_list();
+        [[nodiscard]] QJsonArray get_connection_list();
     };
 
     extern TrafficLooper *trafficLooper;

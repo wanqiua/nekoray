@@ -2,7 +2,7 @@
 #include "fmt/includes.h"
 
 namespace NekoGui_fmt {
-    void V2rayStreamSettings::BuildStreamSettingsSingBox(QJsonObject *outbound) {
+    void V2rayStreamSettings::BuildStreamSettingsSingBox(QJsonObject *outbound, const NekoGui::DataStore *runtimeSettings) {
         // https://sing-box.sagernet.org/configuration/shared/v2ray-transport
 
         if (network != "tcp") {
@@ -33,21 +33,12 @@ namespace NekoGui_fmt {
                 if (!host.isEmpty()) transport["host"] = host;
             }
             outbound->insert("transport", transport);
-        } else if (header_type == "http") {
-            // TCP + headerType
-            QJsonObject transport{
-                {"type", "http"},
-                {"method", "GET"},
-                {"path", path},
-                {"headers", QJsonObject{{"Host", QList2QJsonArray(host.split(","))}}},
-            };
-            outbound->insert("transport", transport);
         }
 
         // 对应字段 tls
         if (security == "tls") {
             QJsonObject tls{{"enabled", true}};
-            if (allow_insecure || NekoGui::dataStore->skip_cert) tls["insecure"] = true;
+            if (allow_insecure || (runtimeSettings != nullptr ? runtimeSettings : NekoGui::dataStore)->skip_cert) tls["insecure"] = true;
             if (!sni.trimmed().isEmpty()) tls["server_name"] = sni;
             if (!certificate.trimmed().isEmpty()) {
                 tls["certificate"] = certificate.trimmed();
@@ -62,7 +53,7 @@ namespace NekoGui_fmt {
                     {"public_key", reality_pbk},
                     {"short_id", reality_sid.split(",")[0]},
                 };
-                if (fp.isEmpty()) fp = "random";
+                if (fp.isEmpty()) fp = "chrome";
             }
             if (!fp.isEmpty()) {
                 tls["utls"] = QJsonObject{
@@ -78,8 +69,13 @@ namespace NekoGui_fmt {
         }
     }
 
-    CoreObjOutboundBuildResult SocksHttpBean::BuildCoreObjSingBox() {
+    CoreObjOutboundBuildResult SocksHttpBean::BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
+        if (stream->network != "tcp" || (!stream->header_type.isEmpty() && stream->header_type != "none") ||
+            (socks_http_type != type_HTTP && stream->security == "tls")) {
+            result.error = QObject::tr("sing-box SOCKS/HTTP 无法保留此 TLS 或传输组合");
+            return result;
+        }
 
         QJsonObject outbound;
         outbound["type"] = socks_http_type == type_HTTP ? "http" : "socks";
@@ -87,18 +83,22 @@ namespace NekoGui_fmt {
         outbound["server"] = serverAddress;
         outbound["server_port"] = serverPort;
 
-        if (!username.isEmpty() && !password.isEmpty()) {
+        if (!username.isEmpty() || !password.isEmpty()) {
             outbound["username"] = username;
             outbound["password"] = password;
         }
 
-        stream->BuildStreamSettingsSingBox(&outbound);
+        stream->BuildStreamSettingsSingBox(&outbound, runtimeSettings);
         result.outbound = outbound;
         return result;
     }
 
-    CoreObjOutboundBuildResult ShadowSocksBean::BuildCoreObjSingBox() {
+    CoreObjOutboundBuildResult ShadowSocksBean::BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
+        if (stream->network != "tcp" || (!stream->header_type.isEmpty() && stream->header_type != "none") || stream->security == "tls") {
+            result.error = QObject::tr("sing-box Shadowsocks 无法直接应用 TLS 或 V2Ray transport");
+            return result;
+        }
 
         QJsonObject outbound{{"type", "shadowsocks"}};
         outbound["server"] = serverAddress;
@@ -121,12 +121,12 @@ namespace NekoGui_fmt {
             outbound["plugin_opts"] = SubStrAfter(plugin, ";");
         }
 
-        stream->BuildStreamSettingsSingBox(&outbound);
+        stream->BuildStreamSettingsSingBox(&outbound, runtimeSettings);
         result.outbound = outbound;
         return result;
     }
 
-    CoreObjOutboundBuildResult VMessBean::BuildCoreObjSingBox() {
+    CoreObjOutboundBuildResult VMessBean::BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
 
         QJsonObject outbound{
@@ -138,12 +138,12 @@ namespace NekoGui_fmt {
             {"security", security},
         };
 
-        stream->BuildStreamSettingsSingBox(&outbound);
+        stream->BuildStreamSettingsSingBox(&outbound, runtimeSettings);
         result.outbound = outbound;
         return result;
     }
 
-    CoreObjOutboundBuildResult TrojanVLESSBean::BuildCoreObjSingBox() {
+    CoreObjOutboundBuildResult TrojanVLESSBean::BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
 
         QJsonObject outbound{
@@ -154,36 +154,30 @@ namespace NekoGui_fmt {
 
         QJsonObject settings;
         if (proxy_type == proxy_VLESS) {
-            if (flow.right(7) == "-udp443") {
-                // 检查末尾是否包含"-udp443"，如果是，则删去
-                flow.chop(7);
-            } else if (flow == "none") {
-                // 不使用 flow
-                flow = "";
-            }
+            const auto normalizedFlow = flow == "none" ? QString() : flow;
             outbound["uuid"] = password.trimmed();
-            outbound["flow"] = flow;
+            outbound["flow"] = normalizedFlow;
         } else {
             outbound["password"] = password;
         }
 
-        stream->BuildStreamSettingsSingBox(&outbound);
+        stream->BuildStreamSettingsSingBox(&outbound, runtimeSettings);
         result.outbound = outbound;
         return result;
     }
 
-    CoreObjOutboundBuildResult QUICBean::BuildCoreObjSingBox() {
+    CoreObjOutboundBuildResult QUICBean::BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
 
         QJsonObject coreTlsObj{
             {"enabled", true},
             {"disable_sni", disableSni},
-            {"insecure", allowInsecure},
+            {"insecure", allowInsecure || (runtimeSettings != nullptr ? runtimeSettings : NekoGui::dataStore)->skip_cert},
             {"certificate", caText.trimmed()},
             {"server_name", sni},
         };
         if (!alpn.trimmed().isEmpty()) coreTlsObj["alpn"] = QList2QJsonArray(alpn.split(","));
-        if (proxy_type == proxy_Hysteria2) coreTlsObj["alpn"] = "h3";
+        if (proxy_type == proxy_Hysteria2 && alpn.trimmed().isEmpty()) coreTlsObj["alpn"] = QJsonArray{"h3"};
 
         QJsonObject outbound{
             {"server", serverAddress},
@@ -194,9 +188,9 @@ namespace NekoGui_fmt {
         if (proxy_type == proxy_Hysteria) {
             outbound["type"] = "hysteria";
             outbound["obfs"] = obfsPassword;
-            outbound["disable_mtu_discovery"] = disableMtuDiscovery;
-            outbound["recv_window"] = streamReceiveWindow;
-            outbound["recv_window_conn"] = connectionReceiveWindow;
+            outbound["disable_path_mtu_discovery"] = disableMtuDiscovery;
+            if (streamReceiveWindow > 0) outbound["stream_receive_window"] = streamReceiveWindow;
+            if (connectionReceiveWindow > 0) outbound["connection_receive_window"] = connectionReceiveWindow;
             outbound["up_mbps"] = uploadMbps;
             outbound["down_mbps"] = downloadMbps;
 
@@ -211,6 +205,9 @@ namespace NekoGui_fmt {
             outbound["password"] = password;
             outbound["up_mbps"] = uploadMbps;
             outbound["down_mbps"] = downloadMbps;
+            outbound["disable_path_mtu_discovery"] = disableMtuDiscovery;
+            if (streamReceiveWindow > 0) outbound["stream_receive_window"] = streamReceiveWindow;
+            if (connectionReceiveWindow > 0) outbound["connection_receive_window"] = connectionReceiveWindow;
             
             if (!hopPort.trimmed().isEmpty()) {
                 outbound["hop_ports"] = hopPort;
@@ -240,7 +237,7 @@ namespace NekoGui_fmt {
         return result;
     }
 
-    CoreObjOutboundBuildResult CustomBean::BuildCoreObjSingBox() {
+    CoreObjOutboundBuildResult CustomBean::BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings) {
         CoreObjOutboundBuildResult result;
 
         if (core == "internal") {
