@@ -40,6 +40,7 @@ private:
     QComboBox *hy2BbrProfile, *hy2ObfsType;
     QLineEdit *hy2GeckoMinPacketSize, *hy2GeckoMaxPacketSize;
     QLineEdit *hy2HopIntervalMin, *hy2HopIntervalMax;
+    QLineEdit *hy2CertificatePin;
     QCheckBox *hy2DisableChromeParrot;
 
     void updateHysteria2AdvancedState();

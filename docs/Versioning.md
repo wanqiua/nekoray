@@ -1,26 +1,22 @@
-本仓库的二开版本使用 `v3.26-dual-core.N` 标签，`3.26` 表示上游基线，`N` 表示本分支的版本序号。
+# 版本记录
 
-每次对外交付一个新版本，都创建并推送新的带注释 Git 标签。标签固定指向该版本的提交，已经发布的标签保持不变；后续修复递增版本号。日常开发提交可以在一个版本内汇总。
+从 **NekoRay_BY_WanQiu 0.1** 开始使用独立版本号，Git 标签为 `v0.1`。后续版本使用新的递增版本号与标签；上游基线 3.26 仅保留在来源说明及构建清单的 `gui_base` 字段中。
 
-| 版本 | 源码范围 | 状态 |
-| --- | --- | --- |
-| [v3.26-dual-core.1](https://github.com/wanqiua/nekoray/tree/v3.26-dual-core.1) | 上一个双内核开发基线，提交 `0cb98f3c742ff0d28faeb662271aaed3106b6471`，2026-09-13 | 补录历史版本；不包含随后完成的 TUN 修复和 AnyTLS、Snell 等适配。 |
-| [v3.26-dual-core.2](https://github.com/wanqiua/nekoray/tree/v3.26-dual-core.2) | 双内核切换、TUN 与系统代理恢复、批量 URL 修复、AnyTLS、Snell 4/6、Hysteria2 新选项；功能提交为 `73b90c15dcd256d269eaa8b9458d79a6132c110c`，补全 Windows 便携版说明和 Release 下载 | 当前版本，2026-09-15 完成最后一项 TUN 补充验收并整理发行文件。 |
+| 版本 | 主要内容 |
+| --- | --- |
+| [v0.1](https://github.com/wanqiua/nekoray/releases/tag/v0.1) | 新产品名称；删除不可用配置反馈及有效结果判断；VLESS XUDP 的 Xray 映射；Hysteria2 证书指纹与订阅端口别名；正常阻断日志及主界面高度修复。 |
+| [v3.26-dual-core.2](https://github.com/wanqiua/nekoray/releases/tag/v3.26-dual-core.2) | 历史版本：双内核切换、TUN 恢复、批量 URL 测试，以及 AnyTLS、Snell 和 Hysteria2 扩展。 |
+| [v3.26-dual-core.1](https://github.com/wanqiua/nekoray/tree/v3.26-dual-core.1) | 补录的历史开发基线，未包含后续 TUN 与新协议改动。 |
 
-`.1` 对应历史 Git 源码快照，不将更早的本地 ZIP 推断为该提交的构建产物。`.2` 的功能代码与已经验收的 2026-09-13 便携包一致，此后的变更为文档和发行资料。原始验收记录见[包验收记录](../tests/acceptance/package_acceptance.md)。
+历史标签和发行文件保持原样。当前发行包名称为 `NekoRay_BY_WanQiu-0.1-windows-x64`，包含便携 ZIP、对应源码 ZIP、SHA-256 文件和验证记录。主程序为 `NekoRay_BY_WanQiu.exe`，窗口及 Windows 文件属性使用新名称与版本；原配置目录和两个内核文件名继续兼容。
 
-正式便携发行使用 `nekoray-3.26-dual-core.2-windows-x64` 命名的便携 ZIP、源码 ZIP 和校验文件。程序与内核二进制保持已验收构建，源码包包含清理后的 README 和固定子模块；发布前重新检查归档和实际程序运行。9 月 13 日生成的历史 ZIP 保留原文件与哈希。
+两种内核仍固定为 Matsuri Xray **1.8.4** 与 sing-box **1.14.0**，本次同时重建 GUI 和两个内核。具体修复见 [0.1 说明](Release_0.1.md)。
 
-本次按维护者明确要求，在首次 Release 发布前更新已有 `.2` 的文档、标签指向和发行文件，不增加版本标签。该次调整仅涉及 README、翻译文件清理与版本说明，功能提交仍为上述 `73b90c1`。正式发行后继续采用新功能版本递增标签的规则。
+发布步骤：
 
-当前版本继续使用 Matsuri Xray **1.8.4** 和 sing-box **1.14.0**。验证包含完整 CTest、新协议真实回环转发、配置迁移、便携包及 Windows 11 的真实系统代理和 TUN；实测范围与限制见[实现说明](Dynamic_Core_Implementation.md)。
+1. 完成代码和检查，更新产品版本及发行说明，提交源码。
+2. 构建与验证便携包、对应源码、依赖声明和校验文件。
+3. 在已验证提交上创建新的带注释标签，将版本分支和新标签推送到 `origin`。
+4. 创建对应 GitHub Release，上传产物并核对远端哈希，最后公开发布。
 
-发布新版本时按以下顺序操作：
-
-1. 完成该版本的代码、相关检查和验收记录，并提交到版本分支。
-2. 查看本地与远端标签，按现有最大序号递增，确认新名称尚未使用。
-3. 在目标提交上创建带注释标签，说明版本变化和验证结果。
-4. 将版本分支及这个新标签一起推送到 `origin`；支持时使用 `git push --atomic`，使两者一起成功。
-5. 核对远端标签解析出的提交与本地目标一致，再报告发布成功。
-
-普通分支推送不会为提交自动创建版本标签。GitHub 的 Tags 页面用于检出对应源码；需要分发编译好的程序时，在对应标签下创建 Release 并附上已验收的便携包及校验文件。
+普通分支推送不会自动创建版本标签或发行文件。

@@ -309,6 +309,9 @@ set(MACOSX_ICON ${CMAKE_SOURCE_DIR}/res/nekoray.icns)
 if (APPLE)
     target_sources(nekoray PRIVATE ${MACOSX_ICON})
 endif ()
+if (WIN32)
+    set_target_properties(nekoray PROPERTIES OUTPUT_NAME "NekoRay_BY_WanQiu")
+endif ()
 set_target_properties(nekoray PROPERTIES
         MACOSX_BUNDLE_ICON_FILE "nekoray.icns"
         RESOURCE ${MACOSX_ICON}

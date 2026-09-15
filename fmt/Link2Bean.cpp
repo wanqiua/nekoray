@@ -51,6 +51,7 @@ namespace {
             {"up_mbps", "uploadMbps"}, {"upmbps", "uploadMbps"},
             {"down_mbps", "downloadMbps"}, {"downmbps", "downloadMbps"},
             {"ca", "caText"}, {"certificate", "caText"},
+            {"fingerprint", "pinSHA256"}, {"pin-sha256", "pinSHA256"}, {"pin_sha256", "pinSHA256"},
             {"disable_sni", "disableSni"},
             {"stream_receive_window", "streamReceiveWindow"}, {"connection_receive_window", "connectionReceiveWindow"},
             {"disable_path_mtu_discovery", "disableMtuDiscovery"},
@@ -133,6 +134,7 @@ namespace {
                 if (key == "sni") candidate.sni = queryValue;
                 else if (key == "alpn") candidate.alpn = queryValue;
                 else if (key == "caText") candidate.caText = queryValue;
+                else if (key == "pinSHA256") candidate.pinSHA256 = queryValue;
                 else if (key == "obfsType") candidate.obfsType = queryValue;
                 else if (key == "obfsPassword") candidate.obfsPassword = queryValue;
                 else if (key == "hopPort") candidate.hopPort = queryValue;

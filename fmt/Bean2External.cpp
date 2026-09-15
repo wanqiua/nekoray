@@ -257,6 +257,7 @@ namespace NekoGui_fmt {
             auto sniGen = sni;
             if (sni.isEmpty() && !IsIpAddress(serverAddress)) sniGen = serverAddress;
             tls["sni"] = sniGen;
+            if (!pinSHA256.isEmpty()) tls["pinSHA256"] = Hysteria2CertificatePin();
             if (allowInsecure) tls["insecure"] = true;
             if (!caText.trimmed().isEmpty()) {
                 WriteTempFile("hysteria2_" + GetRandomString(10) + ".crt", caText.toUtf8());

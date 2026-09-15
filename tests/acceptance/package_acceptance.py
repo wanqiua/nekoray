@@ -22,6 +22,8 @@ from package_fixture import (assert_original_bytes, assert_retained, copy_fixtur
 from package_go_build_info import verify_go_metadata
 
 XRAY_REVISION = "01208225ee7e508044cca8eb6776a117bcecd997"
+PRODUCT_NAME = "NekoRay_BY_WanQiu"
+GUI_FILENAME = PRODUCT_NAME + ".exe"
 REQUIRED_FILES = {
     "nekoray.exe", "nekoray_core.exe", "nekobox_core.exe", "core-versions.json",
     "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll", "Qt6Network.dll", "Qt6Svg.dll",
@@ -49,6 +51,9 @@ REQUIRED_SOURCE_FILES = {
     "go/cmd/nekobox_core/capabilities_quic.go", "go/cmd/nekobox_core/capabilities_test.go",
     "go/cmd/nekobox_core/protocol_peers_test.go", "go/cmd/nekobox_core/protocol_gui_fixture_test.go",
     "go/cmd/nekobox_core/protocol_routing_test.go", "go/cmd/nekobox_core/probe_network_test.go",
+    "go/cmd/nekobox_core/hysteria2_pin.go", "go/cmd/nekobox_core/hysteria2_pin_noquic.go",
+    "go/cmd/nekobox_core/hysteria2_pin_test.go", "go/cmd/nekobox_core/block_routing_test.go",
+    "go/cmd/nekoray_core/vless_xudp_test.go", "tests/release_0_1_regression_test.hpp",
     "go/grpc_server/go.mod", "go/grpc_server/go.sum", "go/grpc_server/grpc.go", "go/grpc_server/capabilities.go",
     "go/grpc_server/fulltest.go", "go/grpc_server/failures.go", "go/grpc_server/auth/auth.go",
     "go/grpc_server/probe/url.go", "go/grpc_server/probe/tcp.go", "go/grpc_server/gen/libcore.proto",
@@ -85,6 +90,9 @@ def relative_path(value: str) -> str:
 
 
 def check_core_manifest(manifest: dict):
+    if "product" in manifest and (manifest["product"] != PRODUCT_NAME or
+        not re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?", manifest.get("gui_version", ""))):
+        raise ValueError("Unexpected product name or version")
     if manifest.get("gui_base") != "3.26":
         raise ValueError("Unexpected GUI base")
     cores = manifest["cores"]
@@ -97,19 +105,35 @@ def check_core_manifest(manifest: dict):
         raise ValueError("Candidate does not preserve the required compatible core versions and sources")
 
 
+def required_portable_files(manifest: dict) -> set[str]:
+    if manifest.get("product") == PRODUCT_NAME:
+        if manifest.get("gui_executable") != GUI_FILENAME:
+            raise ValueError("Unexpected branded GUI executable")
+        return (REQUIRED_FILES - {"nekoray.exe"}) | {GUI_FILENAME}
+    return REQUIRED_FILES
+
+
+def archive_root(zipped: zipfile.ZipFile) -> str:
+    roots = {relative_path(info.filename.rstrip("/")).split("/")[0] for info in zipped.infolist()}
+    if len(roots) != 1 or not roots <= {"nekoray", PRODUCT_NAME}:
+        raise ValueError("Unexpected archive root")
+    return roots.pop()
+
+
 def verify_source_archive(archive: Path):
     with zipfile.ZipFile(archive) as zipped:
+        root = archive_root(zipped)
         files = set()
         seen = set()
         total = 0
         for info in zipped.infolist():
             name = relative_path(info.filename.rstrip("/"))
-            if name != "nekoray" and not name.startswith("nekoray/"):
+            if name != root and not name.startswith(root + "/"):
                 raise ValueError("Unexpected source archive root")
             if name.casefold() in seen:
                 raise ValueError("Duplicate source archive path")
             seen.add(name.casefold())
-            relative = name.removeprefix("nekoray/")
+            relative = name.removeprefix(root + "/")
             parts = relative.lower().split("/")
             directories = parts if info.is_dir() else parts[:-1]
             if ((directories and directories[0] in {"config", "out"}) or
@@ -130,7 +154,7 @@ def verify_source_archive(archive: Path):
                              ", ".join(sorted(REQUIRED_SOURCE_FILES - files)))
         if zipped.testzip() is not None:
             raise ValueError("Source archive failed its CRC check")
-        source = json_without_duplicate_keys(zipped.read("nekoray/BUILD-SOURCE.json"))
+        source = json_without_duplicate_keys(zipped.read(root + "/BUILD-SOURCE.json"))
         if not source.get("includes_working_tree_changes") or not re.fullmatch(r"[0-9a-f]{40}", source.get("base_revision", "")):
             raise ValueError("Source archive does not identify its working-tree snapshot")
 
@@ -139,12 +163,13 @@ def verify_archive(archive: Path, destination: Path, require_source: bool = True
     if destination.exists():
         raise ValueError("Archive extraction requires a new directory")
     with zipfile.ZipFile(archive) as zipped:
+        root = archive_root(zipped)
         entries = {}
         normalized = set()
         total_bytes = 0
         for info in zipped.infolist():
             name = relative_path(info.filename.rstrip("/"))
-            if name != "nekoray" and not name.startswith("nekoray/"):
+            if name != root and not name.startswith(root + "/"):
                 raise ValueError("Unexpected archive root")
             if name.casefold() in normalized:
                 raise ValueError("Duplicate or case-colliding ZIP path")
@@ -156,9 +181,9 @@ def verify_archive(archive: Path, destination: Path, require_source: bool = True
             if total_bytes > 4 * 1024**3:
                 raise ValueError("Portable archive exceeds the acceptance size limit")
             if not info.is_dir():
-                if name == "nekoray":
+                if name == root:
                     raise ValueError("Archive root must be a directory")
-                entries[name.removeprefix("nekoray/")] = info
+                entries[name.removeprefix(root + "/")] = info
         if "package-manifest.json" not in entries:
             raise ValueError("Missing package manifest")
         manifest = json_without_duplicate_keys(zipped.read(entries["package-manifest.json"]))
@@ -175,8 +200,9 @@ def verify_archive(archive: Path, destination: Path, require_source: bool = True
             records[name] = entry
         if set(entries) != set(records) | {"package-manifest.json"}:
             raise ValueError("Archive file set differs from its manifest")
-        if not REQUIRED_FILES <= set(records):
-            raise ValueError("Required portable files are missing: " + ", ".join(sorted(REQUIRED_FILES - set(records))))
+        required = required_portable_files(manifest)
+        if not required <= set(records):
+            raise ValueError("Required portable files are missing: " + ", ".join(sorted(required - set(records))))
         for name, entry in records.items():
             parts = name.split("/")
             if (parts[0].casefold() in {"config", "profiles", "groups", "routes", "routes_box", "build", "tests"} or
@@ -196,6 +222,8 @@ def verify_archive(archive: Path, destination: Path, require_source: bool = True
             raise ValueError("Core payload is not Windows amd64")
         if manifest["cores"] != core_manifest["cores"]:
             raise ValueError("Package and core manifests disagree")
+        if any(manifest.get(key) != core_manifest.get(key) for key in ("product", "gui_version")):
+            raise ValueError("Package and cores have different product versions")
         for core in ("nekoray_core", "nekobox_core"):
             if records[core + ".exe"]["sha256"].lower() != core_manifest["cores"][core]["sha256"].lower():
                 raise ValueError("Core binary hash differs from its provenance")
@@ -213,7 +241,7 @@ def verify_archive(archive: Path, destination: Path, require_source: bool = True
             source_verified = True
         # All names, sizes and content hashes were checked before any extraction.
         destination.mkdir(parents=True)
-        payload = destination / "nekoray"
+        payload = destination / root
         for name, info in entries.items():
             target = payload / name
             target.parent.mkdir(parents=True, exist_ok=True)

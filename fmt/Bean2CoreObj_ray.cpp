@@ -187,6 +187,12 @@ namespace NekoGui_fmt {
 
         QJsonObject settings;
         if (proxy_type == proxy_VLESS) {
+            if (stream->packet_encoding == "xudp") {
+                // Xray configures XUDP through mux, independently of TCP mux.
+                // Preserve the explicit UDP encoding even when TCP mux is off.
+                outbound["mux"] = QJsonObject{{"enabled", false}, {"concurrency", -1},
+                                               {"xudpConcurrency", 8}, {"xudpProxyUDP443", "allow"}};
+            }
             const auto normalizedFlow = flow == "none" ? QString() : flow;
             settings = QJsonObject{
                 {"vnext", QJsonArray{

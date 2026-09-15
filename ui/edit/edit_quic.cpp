@@ -91,6 +91,10 @@ EditQUIC::EditQUIC(QWidget *parent) : QWidget(parent), ui(new Ui::EditQUIC) {
     hy2HopIntervalMax->setPlaceholderText(tr("留空使用固定间隔"));
     hy2HopIntervalMax->setToolTip(tr("设置后在最小、最大间隔之间随机跳端口；最大值不得小于最小值，且最小值不能为 0。"));
     form->addRow(tr("最大跳端口间隔"), hy2HopIntervalMax);
+    hy2CertificatePin = line("hy2CertificatePin");
+    hy2CertificatePin->setPlaceholderText(tr("留空使用常规证书设置"));
+    hy2CertificatePin->setToolTip(tr("服务端证书的 SHA-256，64 位十六进制。填写后始终检查指纹，包括启用跳过证书验证时。"));
+    form->addRow(tr("证书 SHA-256"), hy2CertificatePin);
 
     hy2Advanced->setWidget(advanced);
     hy2Advanced->hide();
@@ -103,7 +107,7 @@ EditQUIC::EditQUIC(QWidget *parent) : QWidget(parent), ui(new Ui::EditQUIC) {
     for (auto combo : {hy2BbrProfile, hy2ObfsType}) {
         connect(combo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] { updateHysteria2AdvancedState(); });
     }
-    for (auto field : {hy2GeckoMinPacketSize, hy2GeckoMaxPacketSize, hy2HopIntervalMin, hy2HopIntervalMax}) {
+    for (auto field : {hy2GeckoMinPacketSize, hy2GeckoMaxPacketSize, hy2HopIntervalMin, hy2HopIntervalMax, hy2CertificatePin}) {
         connect(field, &QLineEdit::textChanged, this, [this] { updateHysteria2AdvancedState(); });
     }
     connect(hy2DisableChromeParrot, &QCheckBox::toggled, this, [this] { updateHysteria2AdvancedState(); });
@@ -122,7 +126,7 @@ void EditQUIC::updateHysteria2AdvancedState() {
     const bool configured = (!bbr.isEmpty() && bbr != "standard") || !hy2ObfsType->currentData().toString().isEmpty() ||
                             customSize(hy2GeckoMinPacketSize, "512") || customSize(hy2GeckoMaxPacketSize, "1200") ||
                             hy2DisableChromeParrot->isChecked() || !hy2HopIntervalMin->text().isEmpty() ||
-                            !hy2HopIntervalMax->text().isEmpty();
+                            !hy2HopIntervalMax->text().isEmpty() || !hy2CertificatePin->text().isEmpty();
     hy2AdvancedToggle->setText(configured ? tr("高级设置（已配置）") : tr("高级设置"));
 }
 
@@ -182,6 +186,7 @@ void EditQUIC::onStart(std::shared_ptr<NekoGui::ProxyEntity> _ent) {
         hy2DisableChromeParrot->setChecked(bean->disableChromeParrot);
         hy2HopIntervalMin->setText(bean->hopIntervalMin);
         hy2HopIntervalMax->setText(bean->hopIntervalMax);
+        hy2CertificatePin->setText(bean->pinSHA256);
         updateHysteria2AdvancedState();
         ui->uploadMbps->setToolTip(tr("0 表示使用 BBR；单位为 Mbps。"));
         ui->downloadMbps->setToolTip(ui->uploadMbps->toolTip());
@@ -286,6 +291,7 @@ bool EditQUIC::onEnd() {
         bean->disableChromeParrot = hy2DisableChromeParrot->isChecked();
         bean->hopIntervalMin = hy2HopIntervalMin->text();
         bean->hopIntervalMax = hy2HopIntervalMax->text();
+        bean->pinSHA256 = hy2CertificatePin->text();
     } else {
         P_SAVE_INT(hopInterval);
         P_SAVE_INT(uploadMbps);

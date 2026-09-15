@@ -100,7 +100,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
     // software_name
     if (IS_NEKO_BOX) {
-        software_name = "NekoBox";
+        software_asset_name = "nekobox";
         software_core_name = "sing-box";
         // replace default values
         if (NekoGui::dataStore->log_level == "warning") NekoGui::dataStore->log_level = "info";
@@ -1438,12 +1438,16 @@ void MainWindow::on_menu_update_subscription_triggered() {
 void MainWindow::on_menu_remove_unavailable_triggered() {
     QList<std::shared_ptr<NekoGui::ProxyEntity>> out_del;
 
-    for (const auto &[_, profile]: NekoGui::profileManager->profiles) {
-        if (NekoGui::dataStore->current_group != profile->gid) continue;
-        const auto resolution = NekoGui::ResolveCore(profile, NekoGui::PreferredCore());
-        if (core_manager && resolution.targetCore >= 0 &&
-            profile->IsRemovalCandidate(resolution.targetCore, core_manager->Identity(resolution.targetCore),
-                                         test_fingerprint(profile, resolution.targetCore))) out_del += profile;
+    for (const auto &profile: NekoGui::profileManager->CurrentGroup()->Profiles()) {
+        if (profile->id == NekoGui::dataStore->started_id ||
+            (active_core_intent && active_core_intent->profile == profile) ||
+            (pending_core_intent && pending_core_intent->profile == profile)) continue;
+        if (removal_test_result(profile).status == NekoGui::TestResultStatus::ConnectionFailure) out_del += profile;
+    }
+    if (out_del.isEmpty()) {
+        QMessageBox::information(this, tr("删除不可用配置"),
+            tr("没有可删除的不可用配置。\n请先测试当前分组。正在使用、未测试、结果已过期或内核错误的配置会保留。"));
+        return;
     }
 
     int remove_display_count = 0;
@@ -1461,6 +1465,7 @@ void MainWindow::on_menu_remove_unavailable_triggered() {
         for (const auto &ent: out_del) {
             NekoGui::profileManager->DeleteProfile(ent->id);
         }
+        show_log_impl(tr("已删除 %1 个不可用配置。").arg(out_del.size()));
         refresh_proxy_list();
     }
 }

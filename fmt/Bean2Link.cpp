@@ -246,6 +246,7 @@ namespace NekoGui_fmt {
             url.setPort(serverPort);
             url.setUserName(password, QUrl::DecodedMode);
             QUrlQuery q;
+            if (!pinSHA256.isEmpty()) q.addQueryItem("pinSHA256", pinSHA256);
             if (!obfsPassword.isEmpty()) {
                 q.addQueryItem("obfs", "salamander");
                 q.addQueryItem("obfs-password", QString::fromLatin1(QUrl::toPercentEncoding(obfsPassword)));

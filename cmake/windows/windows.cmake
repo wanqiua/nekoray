@@ -5,11 +5,16 @@ include(cmake/windows/generate_product_version.cmake)
 generate_product_version(
         QV2RAY_RC
         ICON "${CMAKE_SOURCE_DIR}/res/nekoray.ico"
-        NAME "nekoray"
-        BUNDLE "nekoray"
-        COMPANY_NAME "nekoray"
-        COMPANY_COPYRIGHT "nekoray"
-        FILE_DESCRIPTION "nekoray"
+        NAME "NekoRay_BY_WanQiu"
+        BUNDLE "NekoRay_BY_WanQiu"
+        VERSION_MAJOR ${PROJECT_VERSION_MAJOR}
+        VERSION_MINOR ${PROJECT_VERSION_MINOR}
+        VERSION_PATCH 0
+        VERSION_REVISION 0
+        COMPANY_NAME "WanQiu"
+        COMPANY_COPYRIGHT "NekoRay contributors / WanQiu"
+        FILE_DESCRIPTION "NekoRay_BY_WanQiu"
+        ORIGINAL_FILENAME "NekoRay_BY_WanQiu.exe"
 )
 add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX)
 set(GUI_TYPE WIN32)

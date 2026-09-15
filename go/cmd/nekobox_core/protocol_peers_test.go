@@ -186,33 +186,53 @@ func verifyProtocolPeerUDP(t *testing.T, core *BoxInstance, extraSizes ...int) {
 	defer func() { echo.Close(); <-done }()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	// UoT v2 encodes an initial destination even for unconnected datagrams.
-	// Match the normal sing-box router, which supplies the real destination;
-	// the legacy BoxInstance.DialUDP hook passes a zero address instead.
-	conn, err := core.Outbound().Default().ListenPacket(ctx, M.SocksaddrFromNet(echo.LocalAddr()))
+	exchange := func() error {
+		// UoT v2 encodes an initial destination even for unconnected datagrams.
+		// Match the router, which supplies the real destination; the legacy
+		// BoxInstance.DialUDP hook passes a zero address instead.
+		conn, err := core.Outbound().Default().ListenPacket(ctx, M.SocksaddrFromNet(echo.LocalAddr()))
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		for _, size := range append([]int{1, 64, 1200}, extraSizes...) {
+			payload := make([]byte, size)
+			if _, err := rand.Read(payload); err != nil {
+				return err
+			}
+			if _, err := conn.WriteTo(payload, echo.LocalAddr()); err != nil {
+				return fmt.Errorf("UDP write %d bytes: %w", size, err)
+			}
+			deadline, _ := ctx.Deadline()
+			if err := conn.SetReadDeadline(deadline); err != nil {
+				return err
+			}
+			buffer := make([]byte, 65536)
+			count, source, err := conn.ReadFrom(buffer)
+			if err != nil {
+				return fmt.Errorf("UDP echo %d bytes: received=%d source=%v: %w", size, count, source, err)
+			}
+			if !bytes.Equal(buffer[:count], payload) {
+				return fmt.Errorf("UDP echo %d bytes: payload mismatch (%d bytes received)", size, count)
+			}
+			if source == nil || source.String() != echo.LocalAddr().String() {
+				return fmt.Errorf("UDP response source=%v, want %s", source, echo.LocalAddr())
+			}
+		}
+		return nil
+	}
+	err = exchange()
+	// sing-box 1.14's initial interface update is asynchronous and can close
+	// a QUIC datagram pipe after the preceding HTTP request already succeeded.
+	// Reopen once in that startup window, within the original deadline, and
+	// require the entire payload sequence to pass on the new association.
+	if errors.Is(err, io.ErrClosedPipe) && core.Outbound().Default().Type() == "hysteria2" &&
+		time.Since(core.startedAt) < 2*time.Second && ctx.Err() == nil {
+		t.Log("reopening Hysteria2 UDP association after its startup pipe closed")
+		err = exchange()
+	}
 	if err != nil {
 		t.Fatal(err)
-	}
-	defer conn.Close()
-	for _, size := range append([]int{1, 64, 1200}, extraSizes...) {
-		payload := make([]byte, size)
-		if _, err := rand.Read(payload); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := conn.WriteTo(payload, echo.LocalAddr()); err != nil {
-			t.Fatalf("UDP write %d bytes: %v", size, err)
-		}
-		if err := conn.SetReadDeadline(time.Now().Add(4 * time.Second)); err != nil {
-			t.Fatal(err)
-		}
-		buffer := make([]byte, 65536)
-		count, source, err := conn.ReadFrom(buffer)
-		if err != nil || !bytes.Equal(buffer[:count], payload) {
-			t.Fatalf("UDP echo %d bytes: received=%d source=%v error=%v", size, count, source, err)
-		}
-		if source.String() != echo.LocalAddr().String() {
-			t.Fatalf("UDP response source=%s, want %s", source, echo.LocalAddr())
-		}
 	}
 }
 

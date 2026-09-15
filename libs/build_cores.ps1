@@ -12,13 +12,16 @@ $destinationName = if ($TargetOS -eq 'windows' -and $TargetArch -eq 'amd64') { '
 $destination = Join-Path $projectRoot "deployment/$destinationName"
 $extension = if ($TargetOS -eq 'windows') { '.exe' } else { '' }
 $tags = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'core_build_tags.txt')).Trim()
-$version = 'nekoray-' + (Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'nekoray_version.txt')).Trim() + '-dual-core'
+$guiVersion = (Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'nekoray_version.txt')).Trim()
+$version = 'NekoRay_BY_WanQiu-' + $guiVersion
 $oldEnvironment = @{}
 foreach ($name in @('CGO_ENABLED', 'GOOS', 'GOARCH', 'GOTOOLCHAIN')) {
     $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
 $manifest = [ordered]@{
+    product = 'NekoRay_BY_WanQiu'
+    gui_version = $guiVersion
     gui_base = '3.26'
     target_os = $TargetOS
     target_arch = $TargetArch

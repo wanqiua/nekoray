@@ -142,7 +142,7 @@ namespace qjs {
     QByteArray ReadHookJS() {
 #ifndef NKR_NO_QUICKJS
         if (NekoGui::dataStore->enable_js_hook > 0) {
-            return ReadFile(QString("./hook.%1.js").arg(software_name.toLower()));
+            return ReadFile(QString("./hook.%1.js").arg(software_asset_name));
         }
 #endif
         return {};

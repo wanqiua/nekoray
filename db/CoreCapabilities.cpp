@@ -43,6 +43,9 @@ namespace NekoGui {
                 const auto protocol = outbound[box ? "type" : "protocol"].toString();
                 if (protocols.contains(protocol)) required.insert("outbound." + protocol);
                 if (protocol == "wireguard") required.insert(box ? "endpoint.wireguard" : "outbound.wireguard");
+                if (box && protocol == "hysteria2" && !outbound["tls_certificate_sha256"].toString().isEmpty()) {
+                    required.insert("hysteria2.certificate-pin");
+                }
                 if (protocol == "snell" && (outbound["version"].toInt() == 4 || outbound["version"].toInt() == 6)) {
                     required.insert("snell.v" + QString::number(outbound["version"].toInt()));
                 }
@@ -96,6 +99,7 @@ namespace NekoGui {
             if (feature == "tls.utls") return QObject::tr("uTLS 指纹");
             if (feature == "tls.reality") return QStringLiteral("REALITY");
             if (feature == "tls") return QStringLiteral("TLS");
+            if (feature == "hysteria2.certificate-pin") return QObject::tr("Hysteria2 证书 SHA-256 校验");
             if (feature == "tun") return QStringLiteral("TUN");
             if (feature == "endpoint.wireguard") return QStringLiteral("WireGuard");
             if (feature == "dns.quic") return QStringLiteral("DNS over QUIC");
@@ -235,7 +239,10 @@ namespace NekoGui {
                 stream->ws_early_data_name != "Sec-WebSocket-Protocol") {
                 return QObject::tr("当前 Xray 的 WS early data 仅支持 Sec-WebSocket-Protocol header");
             }
-            if (NonEmpty(stream->packet_encoding) && !box) {
+            const auto tv = dynamic_cast<NekoGui_fmt::TrojanVLESSBean *>(bean);
+            const bool vlessXudp = tv != nullptr && tv->proxy_type == NekoGui_fmt::TrojanVLESSBean::proxy_VLESS &&
+                                   stream->packet_encoding == "xudp";
+            if (NonEmpty(stream->packet_encoding) && !box && !vlessXudp) {
                 return QObject::tr("Xray 适配器无法显式保留 packet_encoding=%1").arg(stream->packet_encoding);
             }
 
@@ -259,7 +266,6 @@ namespace NekoGui {
             if (ss != nullptr && box && (tls || network != "tcp" || HasHeader(stream->header_type))) {
                 return QObject::tr("sing-box Shadowsocks 不能直接套用 TLS 或 V2Ray transport，请使用协议明确的插件配置");
             }
-            const auto tv = dynamic_cast<NekoGui_fmt::TrojanVLESSBean *>(bean);
             if (tv != nullptr && tv->proxy_type == NekoGui_fmt::TrojanVLESSBean::proxy_VLESS) {
                 const auto flow = tv->flow == "none" ? QString() : tv->flow;
                 const auto allowed = box ? QStringList{"", "xtls-rprx-vision"}
@@ -362,7 +368,7 @@ namespace NekoGui {
             return QObject::tr("自定义路由属于 %1，切换前需要适配其规则").arg(CoreDisplayName(sourceCore));
         }
         if (settings->routing->use_dns_object) return QObject::tr("自定义 DNS 对象属于 %1，不能自动跨内核转换").arg(CoreDisplayName(sourceCore));
-        if (settings->enable_js_hook > 0 && QFileInfo::exists(QString("hook.%1.js").arg(software_name.toLower()))) {
+        if (settings->enable_js_hook > 0 && QFileInfo::exists(QString("hook.%1.js").arg(software_asset_name))) {
             return QObject::tr("hook.js 没有声明跨内核语义，当前配置保留在 %1").arg(CoreDisplayName(sourceCore));
         }
         const auto strategy = settings->routing->domain_strategy;

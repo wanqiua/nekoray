@@ -199,7 +199,6 @@ private:
     QHash<int, quint64> preference_revisions;
     QButtonGroup *core_buttons = nullptr;
     QLabel *core_selected_label = nullptr;
-    QLabel *core_choice_reason = nullptr;
     QString core_notice;
     int last_crashed_core = -1;
     QTime last_core_crash;
@@ -213,6 +212,7 @@ private:
     QString test_fingerprint(const std::shared_ptr<NekoGui::ProxyEntity> &profile, int core, int mode = 1,
                              const QJsonObject &parameters = {});
     NekoGui::ProfileTestResult current_test_result(const std::shared_ptr<NekoGui::ProxyEntity> &profile);
+    NekoGui::ProfileTestResult removal_test_result(const std::shared_ptr<NekoGui::ProxyEntity> &profile);
     QString test_result_text(const std::shared_ptr<NekoGui::ProxyEntity> &profile);
     QString test_result_details(const std::shared_ptr<NekoGui::ProxyEntity> &profile);
 

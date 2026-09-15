@@ -8,7 +8,9 @@
 
 //
 
-inline QString software_name = "NekoRay";
+inline QString software_name = "NekoRay_BY_WanQiu";
+// Stable resource and hook names keep existing icons and scripts working.
+inline QString software_asset_name = "nekoray";
 inline QString software_core_name = "Xray";
 
 // Main Functions

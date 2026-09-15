@@ -14,7 +14,7 @@ import stat
 import time
 import uuid
 
-from package_acceptance import (REQUIRED_FILES, check_core_manifest, clean_environment,
+from package_acceptance import (GUI_FILENAME, check_core_manifest, clean_environment, required_portable_files,
                                 json_without_duplicate_keys, prepare, relative_path, verify_archive)
 from package_fixture import (assert_original_bytes, copy_fixture, digest, read_json, require_fixture, write_json)
 from package_windows_gui import inspect_owned_gui
@@ -78,7 +78,7 @@ def stage_verified_payload(source: Path, static_report: Path, destination: Path)
             raise ValueError("Duplicate verified payload manifest record")
         folded.add(name.casefold())
         records[name] = item
-    if not REQUIRED_FILES <= records.keys():
+    if not required_portable_files(manifest) <= records.keys():
         raise ValueError("The verified payload is missing required runtime files")
     names = runtime_files(source, exclude_configuration=False)
     if set(names) != set(records) | {"package-manifest.json"}:
@@ -146,6 +146,11 @@ def require_file(path: Path, label: str):
         raise ValueError(f"Empty {label}: {path}")
 
 
+def gui_executable(payload: Path) -> Path:
+    branded = payload / GUI_FILENAME
+    return branded if branded.is_file() else payload / "nekoray.exe"
+
+
 def validate_native_inputs(payload: Path, legacy_payload: Path, smoke: Path, powershell: Path, environment: dict):
     # Fail before starting any GUI if a later acceptance step cannot run.
     for path, label in ((smoke, "TLS smoke executable"), (powershell, "PowerShell 7 executable"),
@@ -154,7 +159,7 @@ def validate_native_inputs(payload: Path, legacy_payload: Path, smoke: Path, pow
                         (HERE / "package_tls_fixture.ps1", "TLS fixture script")):
         require_file(path, label)
     for root in (payload, legacy_payload):
-        require_file(root / "nekoray.exe", "GUI executable")
+        require_file(gui_executable(root), "GUI executable")
         files = runtime_files(root, exclude_configuration=False)
         present = {Path(name).name.casefold() for name in files}
         missing = {name.casefold() for name in required_gui_modules(root)} - present
@@ -182,7 +187,7 @@ def run_gui(payload: Path, baseline: Path, work: Path, label: str, environment: 
             on_started, *, legacy: bool, timeout: int) -> dict:
     fixture = work / (label + "-config")
     stage_native_fixture(baseline, fixture)
-    executable = payload / "nekoray.exe"
+    executable = gui_executable(payload)
     result = {"scope": "native-gui", "executable_sha256": digest(executable),
               "configuration": "synthetic-pre-upgrade-copy", "normal_exit": False}
 

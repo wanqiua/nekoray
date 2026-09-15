@@ -117,6 +117,8 @@ int main(int argc, char* argv[]) {
     // init QApplication
     delete preQApp;
     QApplication a(argc, argv);
+    QApplication::setApplicationDisplayName(software_name);
+    QApplication::setApplicationVersion(NKR_VERSION);
 
     // dispatchers
     DS_cores = new QThread;
@@ -141,7 +143,7 @@ int main(int argc, char* argv[]) {
             return 0;
         }
         // Some Bad System
-        QMessageBox::warning(nullptr, "NekoRay", "RunGuard disallow to run, use -many to force start.");
+        QMessageBox::warning(nullptr, software_name, "RunGuard disallow to run, use -many to force start.");
         return 0;
     }
     MF_release_runguard = [&] { guard.release(); };

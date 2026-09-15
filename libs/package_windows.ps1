@@ -10,12 +10,15 @@ param(
     [string]$SevenZip = 'C:/Program Files/7-Zip/7z.exe',
     [switch]$ValidateInputsOnly,
     [ValidatePattern('^[a-zA-Z0-9._-]+$')]
-    [string]$PackageName = ('nekoray-3.26-dual-core-windows-x64-' + (Get-Date -Format yyyyMMdd))
+    [string]$PackageName = ('NekoRay_BY_WanQiu-' + (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../nekoray_version.txt')).Trim() + '-windows-x64')
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'package_source_inventory.ps1')
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$productName = 'NekoRay_BY_WanQiu'
+$guiVersion = (Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'nekoray_version.txt')).Trim()
+$guiFilename = "$productName.exe"
 $GuiPath = (Resolve-Path -LiteralPath $GuiPath).Path
 $QtSdk = (Resolve-Path -LiteralPath $QtSdk).Path
 $CoreDirectory = (Resolve-Path -LiteralPath $CoreDirectory).Path
@@ -25,6 +28,13 @@ $NoticesDirectory = (Resolve-Path -LiteralPath $NoticesDirectory).Path
 $SevenZip = (Resolve-Path -LiteralPath $SevenZip).Path
 $windeploy = Join-Path $QtSdk 'bin/windeployqt.exe'
 $coreManifest = Get-Content -Raw -LiteralPath (Join-Path $CoreDirectory 'core-versions.json') | ConvertFrom-Json
+if ($coreManifest.product -ne $productName -or $coreManifest.gui_version -ne $guiVersion) {
+    throw 'Rebuild both cores for the current product version before packaging.'
+}
+$guiInfo = (Get-Item -LiteralPath $GuiPath).VersionInfo
+if ($guiInfo.ProductName -ne $productName -or $guiInfo.ProductVersion -ne "$guiVersion.0.0") {
+    throw 'The GUI product name/version does not match the current release.'
+}
 if ($coreManifest.target_os -ne 'windows' -or $coreManifest.target_arch -ne 'amd64') {
     throw 'The core manifest must describe Windows amd64 binaries.'
 }
@@ -44,7 +54,7 @@ $requiredInputs = @($windeploy, $GuiPath, $SevenZip, (Join-Path $NoticesDirector
 $requiredInputs += @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll') | ForEach-Object { Join-Path $CrtDirectory $_ }
 $requiredInputs += @('Qt6Core.dll', 'libcrypto-3-x64.dll', 'libssl-3-x64.dll') | ForEach-Object { Join-Path $QtSdk "bin/$_" }
 $requiredInputs += @('geoip.dat', 'geosite.dat', 'geoip.db', 'geosite.db') | ForEach-Object { Join-Path $GeoDataDirectory $_ }
-$packageDocuments = @('Core_Upgrade.md', 'Build_Core.md', 'Build_Windows.md', 'Dynamic_Core_Implementation.md')
+$packageDocuments = @('Core_Upgrade.md', 'Build_Core.md', 'Build_Windows.md', 'Dynamic_Core_Implementation.md', 'Release_0.1.md', 'Versioning.md')
 $requiredInputs += @('Portable_Windows.md') + $packageDocuments | ForEach-Object { Join-Path $projectRoot "docs/$_" }
 $requiredInputs += @('nekoray.png', 'nekobox.png', 'qtbase_zh_CN.qm') | ForEach-Object { Join-Path $projectRoot "res/public/$_" }
 $requiredInputs += Join-Path $projectRoot 'LICENSE'
@@ -79,8 +89,8 @@ foreach ($output in @($portableZip, $sourceZip, $checksumFile)) {
 }
 # Every run gets a fresh directory. Existing deployments and user data are never copied wholesale.
 $work = Join-Path $OutputDirectory ('.stage-' + [Guid]::NewGuid().ToString('N'))
-$portable = Join-Path $work 'portable/nekoray'
-$source = Join-Path $work 'source/nekoray'
+$portable = Join-Path $work "portable/$productName"
+$source = Join-Path $work "source/$productName"
 New-Item -ItemType Directory -Path $portable, $source -Force | Out-Null
 
 function Copy-Payload([string]$From, [string]$Relative) {
@@ -89,14 +99,14 @@ function Copy-Payload([string]$From, [string]$Relative) {
     Copy-Item -LiteralPath $From -Destination $target
 }
 
-Copy-Payload $GuiPath 'nekoray.exe'
+Copy-Payload $GuiPath $guiFilename
 foreach ($name in @('nekoray_core.exe', 'nekobox_core.exe', 'core-versions.json')) {
     Copy-Payload (Join-Path $CoreDirectory $name) $name
 }
 $oldPath = $env:PATH
 try {
     $env:PATH = (Join-Path $QtSdk 'bin') + ';' + $oldPath
-    & $windeploy --release --no-compiler-runtime --no-system-d3d-compiler --no-opengl-sw --no-translations --no-pdf (Join-Path $portable 'nekoray.exe')
+    & $windeploy --release --no-compiler-runtime --no-system-d3d-compiler --no-opengl-sw --no-translations --no-pdf (Join-Path $portable $guiFilename)
     if ($LASTEXITCODE -ne 0) { throw 'windeployqt failed.' }
 } finally { $env:PATH = $oldPath }
 foreach ($name in @('libcrypto-3-x64.dll', 'libssl-3-x64.dll')) {
@@ -143,7 +153,7 @@ $sourceInfo | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $sou
 function New-VerifiedZip([string]$Directory, [string]$Destination) {
     Push-Location $Directory
     try {
-        & $SevenZip a -tzip -mx=7 -mmt=on $Destination 'nekoray' -bso0 -bsp0
+        & $SevenZip a -tzip -mx=7 -mmt=on $Destination $productName -bso0 -bsp0
         if ($LASTEXITCODE -ne 0) { throw "Could not create ZIP: $Destination" }
         & $SevenZip t $Destination -bso0 -bsp0
         if ($LASTEXITCODE -ne 0) { throw "ZIP integrity check failed: $Destination" }
@@ -159,6 +169,9 @@ $fileManifest = @(Get-ChildItem -LiteralPath $portable -File -Recurse | Sort-Obj
     }
 })
 $manifest = [ordered]@{
+    product = $productName
+    gui_version = $guiVersion
+    gui_executable = $guiFilename
     package = $PackageName
     platform = 'Windows 10/11 x64'
     packaged_at_utc = [DateTime]::UtcNow.ToString('o')

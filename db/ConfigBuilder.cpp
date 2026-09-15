@@ -985,10 +985,9 @@ namespace NekoGui {
                 }
                 // apply mux
                 if (!muxApplied && needMux) {
-                    auto muxObj = QJsonObject{
-                        {"enabled", true},
-                        {"concurrency", dataStore->mux_concurrency},
-                    };
+                    auto muxObj = outbound["mux"].toObject();
+                    muxObj["enabled"] = true;
+                    muxObj["concurrency"] = dataStore->mux_concurrency;
                     outbound["mux"] = muxObj;
                     muxApplied = true;
                 }

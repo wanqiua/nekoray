@@ -123,6 +123,13 @@ func (m *migrator) outbounds() error {
 		}
 		kind, tag := str(out["type"]), str(out["tag"])
 		switch kind {
+		case "block":
+			// Keep the selectable outbound for selectors/detours, but route
+			// direct block rules through reject so an intentional denial is
+			// classified as such instead of a connection failure (EPERM).
+			if tag != "" {
+				m.special[tag] = "reject"
+			}
 		case "dns":
 			if tag == "" {
 				return fmt.Errorf("legacy %s outbound requires a tag", kind)

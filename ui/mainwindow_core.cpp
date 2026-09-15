@@ -121,13 +121,11 @@ void MainWindow::core_notice_message(const QString &message) {
 void MainWindow::setup_core_controls() {
     auto panel = new QWidget(this);
     panel->setObjectName("coreSelectionPanel");
-    auto layout = new QVBoxLayout(panel);
+    auto layout = new QHBoxLayout(panel);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(3);
-    auto row = new QHBoxLayout;
     core_selected_label = new QLabel(tr("Select a node"), panel);
     core_selected_label->setObjectName("coreSelectedNode");
-    row->addWidget(core_selected_label, 1);
+    layout->addWidget(core_selected_label, 1);
     core_buttons = new QButtonGroup(this);
     const QStringList names{tr("Auto"), "Xray", "sing-box"};
     const QStringList objects{"core_auto", "core_xray", "core_singbox"};
@@ -137,18 +135,12 @@ void MainWindow::setup_core_controls() {
         button->setCheckable(true);
         button->setToolTip(tr("For the running node, this switches the core. Existing connections may reconnect."));
         core_buttons->addButton(button, preference);
-        row->addWidget(button);
+        layout->addWidget(button);
         connect(button, &QPushButton::clicked, this, [this, preference] {
             const auto selected = get_now_selected_list();
             if (selected.size() == 1) set_core_preference(selected.first()->id, preference, true);
         });
     }
-    layout->addLayout(row);
-    core_choice_reason = new QLabel(panel);
-    core_choice_reason->setObjectName("coreChoiceReason");
-    core_choice_reason->setWordWrap(true);
-    core_choice_reason->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    layout->addWidget(core_choice_reason);
     ui->verticalLayout_3->insertWidget(1, panel);
     ui->proxyListTable->setColumnCount(6);
     ui->proxyListTable->setHorizontalHeaderItem(5, new QTableWidgetItem(tr("Core")));
@@ -215,27 +207,22 @@ void MainWindow::refresh_core_controls() {
     }
     if (!single) {
         core_selected_label->setText(selected.isEmpty() ? tr("Select a node") : tr("%1 nodes selected").arg(selected.size()));
-        core_choice_reason->setText(core_notice.isEmpty() ? tr("Use the Core menu to save preferences for multiple nodes.") : core_notice);
+        core_selected_label->setToolTip(tr("Use the Core menu to save preferences for multiple nodes."));
+        core_buttons->button(0)->setText(tr("Auto"));
         return;
     }
     const auto profile = selected.first();
     const auto resolution = ResolveCore(profile, PreferredCore());
     core_selected_label->setText(profile->bean->DisplayName().left(64));
-    core_selected_label->setToolTip(profile->bean->DisplayName());
+    core_selected_label->setToolTip(profile->bean->DisplayName() + "\n" + resolution.reason);
+    core_buttons->button(0)->setText(resolution.targetCore >= 0 && profile->core_preference == 0
+                                       ? tr("Auto") + " (" + CoreManager::Name(resolution.targetCore) + ")" : tr("Auto"));
+    core_buttons->button(0)->setToolTip(resolution.reason);
     if (auto selectedButton = core_buttons->button(qBound(0, profile->core_preference, 2))) selectedButton->setChecked(true);
     core_buttons->button(1)->setEnabled(resolution.xraySupported);
     core_buttons->button(2)->setEnabled(resolution.singBoxSupported);
     core_buttons->button(1)->setToolTip(resolution.xraySupported ? tr("Use Xray. Existing connections may reconnect.") : resolution.xrayReason);
     core_buttons->button(2)->setToolTip(resolution.singBoxSupported ? tr("Use sing-box. Existing connections may reconnect.") : resolution.singBoxReason);
-    QString reason = resolution.reason;
-    if (resolution.targetCore >= 0)
-        reason = tr("Next connection: %1").arg(CoreManager::Name(resolution.targetCore)) + (reason.isEmpty() ? "" : " · " + reason);
-    if (core_session && core_session->profile == profile)
-        reason = tr("Running: %1").arg(CoreManager::Name(core_session->instance->core)) + " · " + reason;
-    if (resolution.preferenceFallback) reason += " · " + tr("Saved preference temporarily unavailable");
-    if (core_switch_busy) reason = tr("Switching…") + " · " + reason;
-    if (!core_notice.isEmpty()) reason = core_notice + "\n" + reason;
-    core_choice_reason->setText(reason);
 }
 
 void MainWindow::set_core_preference(int profileId, int preference, bool applyToRunning) {
@@ -290,6 +277,26 @@ ProfileTestResult MainWindow::current_test_result(const std::shared_ptr<ProxyEnt
         !profile->HasValidTestResult(core, identity, result.config_fingerprint)) return empty;
     if (result.status == TestResultStatus::Legacy || result.status == TestResultStatus::Stale || result.status == TestResultStatus::Cancelled) return empty;
     return result;
+}
+
+ProfileTestResult MainWindow::removal_test_result(const std::shared_ptr<ProxyEntity> &profile) {
+    const auto url = current_test_result(profile);
+    // A valid URL result is stronger evidence than a TCP socket probe or an
+    // optional full-test component. In particular, keep a working URL node.
+    if (url.status == TestResultStatus::Success || url.status == TestResultStatus::ConnectionFailure) return url;
+    ProfileTestResult latest;
+    if (url.status != TestResultStatus::Untested) return latest;
+    if (!profile || !core_manager) return latest;
+    const auto core = ResolveCore(profile, PreferredCore()).targetCore;
+    if (core < 0) return latest;
+    for (const auto &mode : {QString("tcp"), QString("full")}) {
+        const auto result = profile->LastTestResult(core, "next", mode);
+        const auto fingerprint = test_fingerprint(profile, core, mode == "tcp" ? 0 : 2, result.parameters);
+        if (!result.Matches(core, core_manager->Identity(core), fingerprint, "next", mode)) continue;
+        if (result.timestamp_ms > latest.timestamp_ms ||
+            (result.timestamp_ms == latest.timestamp_ms && result.status == TestResultStatus::Success)) latest = result;
+    }
+    return latest;
 }
 
 void MainWindow::refresh_test_validity(const std::shared_ptr<ProxyEntity> &profile) {

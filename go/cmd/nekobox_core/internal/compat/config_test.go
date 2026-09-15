@@ -86,6 +86,34 @@ func TestNativeBlockOutboundPreserved(t *testing.T) {
 	}
 }
 
+func TestBlockRoutesUseRejectAndKeepSelectableOutbound(t *testing.T) {
+	output, err := Normalize([]byte(`{"outbounds":[{"type":"direct","tag":"direct"},{"type":"block","tag":"block"},{"type":"selector","tag":"select","outbounds":["direct","block"]}],"route":{"final":"block","rules":[{"domain":["blocked.example.test"],"outbound":"block"},{"type":"logical","mode":"or","rules":[{"port":443},{"network":"udp"}],"outbound":"block"},{"domain":["allowed.example.test"],"outbound":"direct"}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root object
+	if err = json.Unmarshal(output, &root); err != nil {
+		t.Fatal(err)
+	}
+	if len(list(root["outbounds"])) != 3 {
+		t.Fatal("selectable block outbound was removed")
+	}
+	route := obj(root["route"])
+	if _, exists := route["final"]; exists {
+		t.Fatal("block final was not converted to a reject rule")
+	}
+	rules := list(route["rules"])
+	for _, index := range []int{0, 1, 3} {
+		rule := obj(rules[index])
+		if rule["action"] != "reject" || rule["outbound"] != nil {
+			t.Fatalf("block rule was not normalized: %v", rule)
+		}
+	}
+	if obj(rules[2])["outbound"] != "direct" {
+		t.Fatal("unrelated direct rule changed")
+	}
+}
+
 func TestNestedRulesAndDirectOverride(t *testing.T) {
 	input := []byte(`{"outbounds":[{"tag":"proxy","type":"direct","override_address":"127.0.0.1","override_port":8080}],"route":{"final":"proxy","rules":[{"type":"logical","mode":"or","rules":[{"geoip":["private"]},{"domain":["example.test"]}],"outbound":"proxy"}]}}`)
 	output, err := Normalize(input)

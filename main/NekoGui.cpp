@@ -316,13 +316,9 @@ namespace NekoGui {
             isDefault = true;
         }
         if (isDefault) {
-            QString version = SubStrBefore(NKR_VERSION, "-");
-            if (!version.contains(".")) version = "2.0";
-            if (IS_NEKO_BOX) {
-                return "NekoBox/PC/" + version + " (Prefer ClashMeta Format)";
-            } else {
-                return "NekoRay/PC/" + version + " (Prefer ClashMeta Format)";
-            }
+            // Subscription format is independent of the selected runtime core.
+            // Keep the recognized protocol identifier and advertise our version.
+            return "NekoRay/PC/" + QString(NKR_VERSION) + " (Prefer ClashMeta Format; NekoRay_BY_WanQiu)";
         }
         return user_agent;
     }

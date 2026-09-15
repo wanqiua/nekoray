@@ -155,7 +155,7 @@ foreach ($module in @('qtbase', 'qtsvg', 'qtimageformats')) {
 }
 Copy-Item -LiteralPath (Join-Path $DependencyRoot 'OpenSSL-3.0.10-LICENSE.txt') -Destination $notices
 @'
-This is a modified local build of Nekoray 3.26 with Matsuri Xray 1.8.4 compatibility and sing-box 1.14.0.
+NekoRay_BY_WanQiu is based on Nekoray 3.26 with Matsuri Xray 1.8.4 compatibility and sing-box 1.14.0.
 Xray source: https://github.com/MatsuriDayo/Xray-core/tree/01208225ee7e508044cca8eb6776a117bcecd997
 The compatibility core retains RC4-MD5 and allowInsecure from the original Nekoray fork.
 Nekoray license: ../LICENSE (GPL-3.0).

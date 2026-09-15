@@ -1,4 +1,4 @@
-候选包与旧配置验收工具，2026-09-13。此目录只包含开发验收入口，不应打入便携二进制包。按既定阶段顺序，在系统验收和批测体验完成后才创建、运行候选包。
+候选包与旧配置验收工具，更新于 2026-09-15。此目录只包含开发验收入口，不应打入便携二进制包。工具支持历史 `nekoray` 目录及 0.1 的 `NekoRay_BY_WanQiu` 目录与主程序名；以下历史记录仍绑定各自日期和哈希。
 
 **已准备的检查**
 
@@ -9,7 +9,7 @@
 - 分别生成 Xray、sing-box 来源的合成 3.26 配置。包括不连续的节点和分组 ID、分组与节点顺序、重名节点、订阅信息、流量、路由、测试设置、`rc4-md5` 和跳过证书校验字段。
 - 每组配置经历首次升级保存、退出后重新启动、保存默认与逐节点偏好、再次退出和启动。逐项核对旧字段和偏好，旧延迟只进入历史且不重复迁移；另一套来源设置文件保持字节不变。
 - 升级前备份和回退副本保留在不同目录，核对完整原始字节。回退使用升级前配置，不能让旧程序直接处理之后新增的不认识的协议节点。
-- `package_native_acceptance.py` 在新提取副本启动实际 `nekoray.exe`，分别打开两套来源配置，检查合成分组、DLL 来源和正常退出；另复制原版便携程序并用升级前合成备份启动。
+- `package_native_acceptance.py` 在新提取副本启动清单指定的实际 GUI（0.1 为 `NekoRay_BY_WanQiu.exe`），分别打开两套来源配置，检查合成分组、DLL 来源和正常退出；另复制原版便携程序并用升级前合成备份启动。
 - 包内 TLS 正例必须验证 localhost 证书并返回 HTTP 204；错误主机名证书必须握手失败。临时证书仅供测试连接信任，不修改证书存储。
 
 测试入口复用生产 `main.cpp` 的启动流程，并通过主窗口正常退出。它不连接节点、不更新订阅，也不启用系统代理或 TUN。它需要生成的配置标记和独立提取目录的标记，不能接收普通用户配置目录。Windows 进程在启动前加入独立 Job；超时只清理该 Job，正常退出后仍残留子进程会判为失败。清理会等待进程句柄结束和 Job 中活动进程归零，避免日志尚未释放就开始检查下一阶段。
@@ -28,7 +28,7 @@ python -X utf8 tests/acceptance/package_acceptance.py prepare
 
 `prepare` 只在 `build/package-acceptance/<随机目录>` 生成合成配置和备份。不会运行 GUI、内核或构建包。打包脚本新增 `-ValidateInputsOnly`，使用正式打包的同一组输入参数即可检查资源、清单、内核哈希和源码清单，不创建 staging 或 ZIP。
 
-当前共 77 项 Python 测试：`package_native_acceptance_test.py` 的 25 项全部模拟进程和 GUI 观察，不启动 PowerShell、GUI、内核或网络连接；`package_go_build_info_test.py` 的 21 项使用合成 PE，覆盖区段边界、长度溢出、格式、替代模块和通知清单；`package_acceptance_test.py` 的 31 项包含 3 项真实 Windows Python 子进程的 Job 所有权检查，其余为文件和夹具检查。归档遗漏源码/通知或携带旧元数据时，即使归档清单的哈希都正确，也必须在提取前拒绝。
+当前共 80 项 Python 测试：`package_native_acceptance_test.py` 的 25 项全部模拟进程和 GUI 观察，不启动 PowerShell、GUI、内核或网络连接；`package_go_build_info_test.py` 的 21 项使用合成 PE，覆盖区段边界、长度溢出、格式、替代模块和通知清单；`package_acceptance_test.py` 的 34 项包含 3 项真实 Windows Python 子进程的 Job 所有权检查，其余为文件和夹具检查，包含新产品名与目录验证。归档遗漏源码/通知或携带旧元数据时，即使归档清单的哈希都正确，也必须在提取前拒绝。
 
 只豁免精确的本地依赖 `grpc_server@v1.0.0 => ../../grpc_server@(devel)`，其实现必须进入源码包。固定的 `libneko` 快照没有独立 LICENSE，记录允许 `notice_files=0`，但必须包含原 README、`SOURCE-NOTICE.txt` 及明确的来源说明；不能把它误报为许可证丢失，也不能用同一豁免放行其他模块。notice 目录检查只验证发布资料与二进制的一致性，不声称核验上游源码的真实性。
 
@@ -49,7 +49,7 @@ python -X utf8 tests/acceptance/package_acceptance.py lifecycle `
   --probe build/core-upgrade-check/gui-check/nekoray_package_probe.exe
 
 python -X utf8 tests/acceptance/package_native_acceptance.py `
-  --archive 'deployment/packages/nekoray-3.26-dual-core-windows-x64-20260913.zip' `
+  --archive 'deployment/packages/NekoRay_BY_WanQiu-0.1-windows-x64.zip' `
   --smoke 'build/core-upgrade-check/gui-check/nekoray_package_smoke.exe' `
   --legacy-source 'build/core-upgrade-check/reference/nekoray' `
   --powershell 'C:/Program Files/PowerShell/7/pwsh.exe'

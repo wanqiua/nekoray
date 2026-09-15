@@ -1,4 +1,4 @@
-# Nekoray 3.26 双内核兼容说明
+# NekoRay_BY_WanQiu 双内核兼容说明
 
 本地开发分支：`codex/dual-core-latest`。基础版本为官方 3.26，提交 `894410da394aeefbaea0cdee7f29c631c4923698`。
 
@@ -52,7 +52,7 @@ GUI 基于 3.26 继续修改，保留双内核选择和原有 gRPC 接口。本�
 - Xray：原有 3.26 配置直接交给兼容内核，保留 `rc4-md5`、旧 Shadowsocks 插件字段和 `allowInsecure`；跳过证书验证只在配置中显式启用时生效，没有日期限制。连接列表与每个实例的关闭、取消操作仍彼此独立。
 - Xray：不再将旧 `domainStrategy` 改写成新版 `targetStrategy`。自定义配置中非默认的 `targetStrategy` 或新版证书校验字段 `pinnedPeerCertSha256` / `verifyPeerCertByName` 会明确报错，避免被旧内核静默忽略。
 - sing-box DNS：旧地址形式转换为 typed DNS，支持常见 UDP/TCP/TLS/HTTPS/QUIC/H3、本地解析器、FakeIP 和 `rcode://`；旧 DNS 出站转换为 DNS 劫持规则。
-- sing-box 路由：旧 inbound 的 sniff / 域名解析策略转换为规则动作；保留原生 block 出站，支持 direct 目标覆盖和 WireGuard endpoint 转换。
+- sing-box 路由：旧 inbound 的 sniff / 域名解析策略转换为规则动作；直接指向 block 的路由转换为 reject，保留供 selector / detour 引用的 block 出站，支持 direct 目标覆盖和 WireGuard endpoint 转换。
 - sing-box TUN：旧 IPv4 / IPv6 地址与路由字段转换为新版格式。
 - sing-box Hysteria / Hysteria2：旧 `hop_ports` 和数字 `hop_interval` 转换为新版端口范围与持续时间格式。
 - GeoIP / Geosite：可读取 3.26 的本地 `.db`，将分类展开成新版匹配字段；缺失数据库或分类时明确报错。数据库内容本身仍是原便携包版本。

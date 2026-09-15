@@ -216,6 +216,9 @@ namespace NekoGui_sub {
 #ifndef NKR_NO_YAML
 
     QString Node2QString(const YAML::Node &n, const QString &def = "") {
+        // yaml-cpp converts a null node to the literal string "null". Missing
+        // optional subscription fields must instead keep their default value.
+        if (!n.IsDefined() || n.IsNull()) return def;
         try {
             return QString::fromStdString(n.as<std::string>());
         } catch (const YAML::Exception &ex) {
@@ -317,7 +320,7 @@ namespace NekoGui_sub {
                         "alpn", "ca-str", "client-fingerprint", "idle-session-check-interval", "idle-session-timeout",
                         "min-idle-session", "client-metadata", "tfo"});
                     else if (type == "snell") fields.unite(QSet<QString>{"version", "psk", "userkey", "reuse", "network", "obfs-opts", "mode"});
-                    else fields.unite(QSet<QString>{"password", "ports", "server-ports", "sni", "skip-cert-verify", "alpn", "ca-str",
+                    else fields.unite(QSet<QString>{"password", "ports", "mport", "server-ports", "fingerprint", "sni", "skip-cert-verify", "alpn", "ca-str",
                         "obfs", "obfs-password", "up", "down", "bbr-profile", "gecko-min-packet-size", "gecko-max-packet-size",
                         "disable-chrome-parrot", "hop-interval", "hop-interval-min", "hop-interval-max"});
                     bool unsupported = false;
@@ -637,16 +640,37 @@ namespace NekoGui_sub {
                 } else if (type == "hysteria2") {
                     auto bean = ent->QUICBean();
 
-                    bean->hopPort = Node2QString(proxy["ports"]);
-                    if (proxy["server-ports"].IsDefined()) {
-                        const auto ports = proxy["server-ports"];
-                        bool valid = ports.IsSequence() && !proxy["ports"].IsDefined();
-                        if (valid) for (const auto &port : ports) valid &= port.IsScalar();
-                        if (!valid) { Reject(QObject::tr("Hysteria2 server-ports 需为端口列表，且不能与 ports 重复")); continue; }
-                        bean->hopPort = Node2QStringList(ports).join(",");
+                    QStringList canonicalPorts;
+                    bool havePorts = false, invalidPorts = false;
+                    for (const auto &key : {"ports", "mport", "server-ports"}) {
+                        const auto value = proxy[key];
+                        if (!value.IsDefined()) continue;
+                        QString text;
+                        if (QString(key) == "server-ports") {
+                            bool valid = value.IsSequence();
+                            if (valid) for (const auto &port : value) valid &= port.IsScalar();
+                            if (!valid) { Reject(QObject::tr("Hysteria2 server-ports 需为端口列表")); invalidPorts = true; break; }
+                            text = Node2QStringList(value).join(",");
+                        } else text = Node2QString(value);
+                        NekoGui_fmt::QUICBean candidate(NekoGui_fmt::QUICBean::proxy_Hysteria2);
+                        candidate.hopPort = text;
+                        QString error;
+                        auto normalized = candidate.Hysteria2ServerPorts(&error);
+                        normalized.removeDuplicates();
+                        normalized.sort();
+                        if (!error.isEmpty() || (havePorts && normalized != canonicalPorts)) {
+                            Reject(error.isEmpty() ? QObject::tr("Hysteria2 ports、mport 与 server-ports 的范围冲突") : error);
+                            invalidPorts = true;
+                            break;
+                        }
+                        if (!havePorts) bean->hopPort = text;
+                        canonicalPorts = normalized;
+                        havePorts = true;
                     }
+                    if (invalidPorts) continue;
 
                     bean->allowInsecure = proxy["skip-cert-verify"].IsDefined() && proxy["skip-cert-verify"].as<bool>();
+                    bean->pinSHA256 = Node2QString(proxy["fingerprint"]);
                     bean->caText = Node2QString(proxy["ca-str"]);
                     bean->sni = Node2QString(proxy["sni"]);
                     bean->alpn = Node2QStringList(proxy["alpn"]).join(",");

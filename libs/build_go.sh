@@ -18,7 +18,7 @@ DEST="$SRC_ROOT/deployment/$target"
 mkdir -p "$DEST"
 extension=""
 if [ "$GOOS" = windows ]; then extension=".exe"; fi
-version="nekoray-$(tr -d '\r\n' < nekoray_version.txt)-dual-core"
+version="NekoRay_BY_WanQiu-$(tr -d '\r\n' < nekoray_version.txt)"
 tags="$(tr -d '\r\n' < libs/core_build_tags.txt)"
 ldflags="-w -s -X github.com/matsuridayo/libneko/neko_common.Version_neko=$version"
 

@@ -33,7 +33,10 @@ func boxOptions(config []byte) (context.Context, context.CancelFunc, option.Opti
 }
 
 func boxOptionsContext(parent context.Context, config []byte) (context.Context, context.CancelFunc, option.Options, error) {
-	ctx, cancel := context.WithCancel(include.Context(parent))
+	registry := include.OutboundRegistry()
+	registerPinnedHysteria2(registry)
+	ctx, cancel := context.WithCancel(box.Context(parent, include.InboundRegistry(), registry,
+		include.EndpointRegistry(), include.DNSTransportRegistry(), include.ServiceRegistry(), include.CertificateProviderRegistry()))
 	normalized, err := compat.Normalize(config)
 	var options option.Options
 	if err == nil {

@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from package_acceptance import REQUIRED_FILES, REQUIRED_SOURCE_FILES, lifecycle, verify_archive, verify_source_archive
+from package_acceptance import PRODUCT_NAME, GUI_FILENAME, REQUIRED_FILES, REQUIRED_SOURCE_FILES, lifecycle, verify_archive, verify_source_archive
 from package_fixture import (assert_original_bytes, assert_retained, copy_fixture, create_fixture,
                              read_json, require_fixture, write_json)
 from package_go_build_info_test import synthetic_go_payload
@@ -23,27 +23,34 @@ class PackageAcceptanceTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def archive(self, edit=None, extra_entries=(), omit_source=()):
+    def archive(self, edit=None, extra_entries=(), omit_source=(), branded=False):
         payload = {name: ("synthetic " + name).encode() for name in REQUIRED_FILES}
+        root = PRODUCT_NAME if branded else "nekoray"
+        branding = {"product": PRODUCT_NAME, "gui_version": "0.1"} if branded else {}
+        if branded:
+            payload[GUI_FILENAME] = payload.pop("nekoray.exe")
         go_payload, cores = synthetic_go_payload()
         payload.update(go_payload)
-        payload["core-versions.json"] = json.dumps({"gui_base": "3.26", "target_os": "windows", "target_arch": "amd64", "cores": cores}).encode()
+        payload["core-versions.json"] = json.dumps({"gui_base": "3.26", "target_os": "windows", "target_arch": "amd64", "cores": cores, **branding}).encode()
         source = self.root / "fixture-source.zip"
         with zipfile.ZipFile(source, "w") as zipped:
             for name in REQUIRED_SOURCE_FILES - {"BUILD-SOURCE.json"} - set(omit_source):
-                zipped.writestr("nekoray/" + name, "Synthetic source archive")
-            zipped.writestr("nekoray/BUILD-SOURCE.json", json.dumps({"base_revision": "1" * 40, "includes_working_tree_changes": True}))
+                zipped.writestr(root + "/" + name, "Synthetic source archive")
+            zipped.writestr(root + "/BUILD-SOURCE.json", json.dumps({"base_revision": "1" * 40, "includes_working_tree_changes": True}))
         manifest = {"gui_base": "3.26", "cores": copy.deepcopy(cores),
                     "source": {"archive": source.name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()},
                     "files": [{"path": name, "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}
                               for name, content in payload.items()]}
+        manifest.update(branding)
+        if branded:
+            manifest["gui_executable"] = GUI_FILENAME
         if edit:
             edit(payload, manifest)
         archive = self.root / "candidate.zip"
         with zipfile.ZipFile(archive, "w") as zipped:
             for name, content in payload.items():
-                zipped.writestr("nekoray/" + name, content)
-            zipped.writestr("nekoray/package-manifest.json", json.dumps(manifest))
+                zipped.writestr(root + "/" + name, content)
+            zipped.writestr(root + "/package-manifest.json", json.dumps(manifest))
             for name, content in extra_entries:
                 zipped.writestr(name, content)
         return archive
@@ -66,6 +73,19 @@ class PackageAcceptanceTests(unittest.TestCase):
     def test_traversal_archive_is_rejected_before_extraction(self):
         self.rejected(self.archive(extra_entries=(("nekoray/../../outside.txt", b"outside"),)))
         self.assertFalse((self.root / "outside.txt").exists())
+
+    def test_branded_archive_keeps_the_new_executable_and_root(self):
+        report = verify_archive(self.archive(branded=True), self.root / "extracted")
+        payload = Path(report["payload"])
+        self.assertEqual(payload.name, PRODUCT_NAME)
+        self.assertTrue((payload / GUI_FILENAME).is_file())
+        self.assertFalse((payload / "nekoray.exe").exists())
+
+    def test_branded_archive_rejects_mixed_core_versions(self):
+        self.rejected(self.archive(lambda payload, manifest: manifest.update(gui_version="0.2"), branded=True))
+
+    def test_branded_archive_requires_certificate_pin_sources(self):
+        self.rejected(self.archive(omit_source=("go/cmd/nekobox_core/hysteria2_pin.go",), branded=True))
 
     def test_duplicate_manifest_record_is_rejected(self):
         self.rejected(self.archive(lambda payload, manifest: manifest["files"].append(manifest["files"][0])))

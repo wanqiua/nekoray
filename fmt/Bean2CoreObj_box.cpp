@@ -299,6 +299,10 @@ namespace NekoGui_fmt {
         if (!caText.trimmed().isEmpty() && QSslCertificate::fromData(caText.toUtf8(), QSsl::Pem).isEmpty()) {
             return QObject::tr("Hysteria2 自定义 CA 必须包含有效的 PEM 证书");
         }
+        if (!pinSHA256.isEmpty() &&
+            !QRegularExpression("^(?:[0-9a-fA-F]{64}|(?:[0-9a-fA-F]{2}:){31}[0-9a-fA-F]{2})$").match(pinSHA256.trimmed()).hasMatch()) {
+            return QObject::tr("Hysteria2 证书 SHA-256 必须是 64 位十六进制指纹，可用冒号分隔");
+        }
         if (!alpn.isEmpty()) {
             for (const auto &entry : alpn.split(',')) {
                 const auto token = entry.trimmed();
@@ -372,6 +376,7 @@ namespace NekoGui_fmt {
             if (authPayloadType == hysteria_auth_string) outbound["auth_str"] = authPayload;
         } else if (proxy_type == proxy_Hysteria2) {
             outbound["type"] = "hysteria2";
+            if (!pinSHA256.isEmpty()) outbound["tls_certificate_sha256"] = Hysteria2CertificatePin();
             outbound["password"] = password;
             outbound["up_mbps"] = uploadMbps;
             outbound["down_mbps"] = downloadMbps;

@@ -68,7 +68,7 @@ cmake -S . -B build/gui -G Ninja `
 cmake --build build/gui --parallel 8
 ```
 
-编译完成后得到 `build/gui/nekoray.exe`。Qt 运行时的主版本、编译器和位数必须与 SDK 匹配。
+编译完成后得到 `build/gui/NekoRay_BY_WanQiu.exe`。Qt 运行时的主版本、编译器和位数必须与 SDK 匹配。
 
 开发验证直接使用当前 PATH 中的 Qt 运行库即可。
 
@@ -117,7 +117,7 @@ ctest --test-dir build/batch-tests --output-on-failure
 
 ```powershell
 .\libs\package_windows.ps1 `
-  -GuiPath build/gui/nekoray.exe `
+  -GuiPath build/gui/NekoRay_BY_WanQiu.exe `
   -QtSdk $qtSdk `
   -CrtDirectory 'C:/path/to/VC/Redist/MSVC/version/x64/Microsoft.VC145.CRT' `
   -GeoDataDirectory 'C:/path/to/nekoray-3.26/nekoray' `

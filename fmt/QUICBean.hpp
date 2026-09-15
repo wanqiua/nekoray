@@ -49,6 +49,8 @@ namespace NekoGui_fmt {
         bool disableChromeParrot = false;
         QString hopIntervalMin;
         QString hopIntervalMax;
+        // SHA-256 of the leaf certificate DER, distinct from a uTLS fingerprint.
+        QString pinSHA256;
 
         // TUIC
 
@@ -97,6 +99,7 @@ namespace NekoGui_fmt {
                     _add(new configItem("disableChromeParrot", &disableChromeParrot, itemType::boolean));
                     _add(new configItem("hopIntervalMin", &hopIntervalMin, itemType::string));
                     _add(new configItem("hopIntervalMax", &hopIntervalMax, itemType::string));
+                    _add(new configItem("pinSHA256", &pinSHA256, itemType::string));
                 }
             } else if (proxy_type == proxy_TUIC) {
                 _add(new configItem("uuid", &uuid, itemType::string));
@@ -153,6 +156,9 @@ namespace NekoGui_fmt {
         [[nodiscard]] QStringList Hysteria2ServerPorts(QString *error = nullptr) const;
         [[nodiscard]] QString Hysteria2ObfsType() const;
         [[nodiscard]] QString Hysteria2HopInterval() const;
+        [[nodiscard]] QString Hysteria2CertificatePin() const {
+            return QString(pinSHA256).trimmed().remove(':').toLower();
+        }
         [[nodiscard]] QString Hysteria2ExternalCompatibilityError() const;
 
         CoreObjOutboundBuildResult BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings = nullptr) override {

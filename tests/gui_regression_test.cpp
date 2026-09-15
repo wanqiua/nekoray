@@ -720,6 +720,11 @@ private slots:
     void snellUrlBatchRespectsNetwork();
     void newProtocolsClashImportPreservesOptions();
     void newProtocolPeerRuntimeAcceptance();
+    void removeUnavailableUsesValidResultsAndReportsEmpty();
+    void coreSelectionKeepsOneRow();
+    void subscriptionAliasesAndCertificatePins();
+    void subscriptionUserAgentDoesNotDependOnCore();
+    void optionalSubscriptionImportFixture();
 
     void hysteria2AdvancedRoundTrip() {
         Hysteria2EditorRegression::AdvancedRoundTrip(window);
@@ -756,6 +761,7 @@ private slots:
 #include "system_mode_acceptance_test.hpp"
 #include "new_protocol_regression_test.hpp"
 #include "protocol_gui_runtime_test.hpp"
+#include "release_0_1_regression_test.hpp"
 
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
