@@ -4,6 +4,8 @@
 
 本分支基于 **3.26** 保留双内核，使用 **Matsuri Xray v1.8.4 兼容版 / sing-box v1.14.0**。Xray 保留 `rc4-md5` 和 `allowInsecure` 支持。参见 [兼容说明](docs/Core_Upgrade.md) 和 [内核构建教程](docs/Build_Core.md)。
 
+当前二开版本标签为 **[v3.26-dual-core.2](https://github.com/wanqiua/nekoray/tree/v3.26-dual-core.2)**。每次版本更新使用独立标签，历史版本和发布规则见[版本记录](docs/Versioning.md)。
+
 已支持逐节点的“自动 / Xray / sing-box”选择，检查完整配置的兼容性，并在订阅更新后保留可匹配节点的选核偏好。混合内核批量 URL 测试共用总并发预算，结果记录实际内核和配置；新增 AnyTLS、Snell 4/6 和 Hysteria2 高级选项。功能及实测范围见[实现说明](docs/Dynamic_Core_Implementation.md)。
 
 Windows 11 的系统代理、TUN 切核、FakeIP 及故障恢复验收已通过，2026-09-15 完成了拒绝不兼容 FakeIP 设置后保持连接的补充复验。旧配置升级、保存重启、原版回退启动及便携包 TLS 验收也已通过。详见[系统验收](tests/acceptance/system-host.md)、[新协议验收](tests/acceptance/new-protocols.md)和[包验收](tests/acceptance/package_acceptance.md)。
