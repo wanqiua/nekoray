@@ -187,6 +187,9 @@ private:
     QMutex mu_exit;
     QSemaphore sem_stopped;
     int exit_reason = 0;
+    bool exit_completed = false;
+    std::atomic<int> core_background_jobs{0};
+    std::shared_ptr<std::atomic_bool> current_test_cancel;
 
     std::shared_ptr<NekoGui::RunningCoreSession> core_session;
     std::shared_ptr<NekoGui::CoreSwitchIntent> pending_core_intent;

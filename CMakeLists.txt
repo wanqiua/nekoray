@@ -168,6 +168,8 @@ set(PROJECT_SOURCES
         db/CoreCapabilities.cpp
 
         fmt/AbstractBean.cpp
+        fmt/AnyTLSBean.cpp
+        fmt/SnellBean.cpp
         fmt/Bean2CoreObj_ray.cpp
         fmt/Bean2CoreObj_box.cpp
         fmt/Bean2External.cpp
@@ -189,6 +191,7 @@ set(PROJECT_SOURCES
         ui/mainwindow_grpc.cpp
         ui/mainwindow_core.cpp
         ui/mainwindow_tun.cpp
+        ui/TunLifecycle.hpp
         ui/mainwindow.cpp
         ui/mainwindow.h
         ui/mainwindow.ui
@@ -224,6 +227,11 @@ set(PROJECT_SOURCES
         ui/edit/edit_quic.h
         ui/edit/edit_quic.cpp
         ui/edit/edit_quic.ui
+
+        ui/edit/edit_anytls.h
+        ui/edit/edit_anytls.cpp
+        ui/edit/edit_snell.h
+        ui/edit/edit_snell.cpp
 
         ui/edit/edit_custom.h
         ui/edit/edit_custom.cpp
@@ -381,4 +389,5 @@ if (NKR_BUILD_TESTS)
     add_test(NAME core_capabilities COMMAND nekoray_capabilities_tests)
     set_tests_properties(core_capabilities PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 RUN_SERIAL TRUE)
     add_subdirectory(tests)
+    include(tests/acceptance/package_targets.cmake)
 endif ()

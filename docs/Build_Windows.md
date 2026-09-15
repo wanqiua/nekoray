@@ -104,7 +104,16 @@ ctest --test-dir build/batch-tests --output-on-failure
 
 在 PowerShell 7 中调用 `libs/package_windows.ps1`。需要 Git、7-Zip、构建 GUI 时使用的 Qt SDK，以及 MSVC x64 可分发运行库目录。数据库目录应包含 `geoip.dat`、`geosite.dat`、`geoip.db` 和 `geosite.db`；本次使用官方 3.26 便携包中的文件。
 
-先整理依赖许可证目录（包含 `README.txt` 来源清单、Qt、OpenSSL、C++ 依赖、两套 Go 工具链和内核 Go 依赖的许可证），将其传入 `NoticesDirectory`。Go 模块含 `replace` 时按实际替换来源收集许可证；本次 Xray 来源为 Matsuri fork。脚本只将已核对的构建与指定资源装入全新的临时目录，不使用旧部署目录中的其他文件。
+先使用 `libs/prepare_package_notices.ps1` 生成依赖许可证目录，再将其传入 `NoticesDirectory`。生成器读取两份已构建 EXE 的实际 Go build-info，按 `replace` 的真实来源收集许可证，并包含 Qt、OpenSSL、C++ 依赖及两套 Go 工具链声明。`DependencyRoot` 下需要 `cpp-sources`、Qt 6.5.2 各模块源 ZIP 和 `OpenSSL-3.0.10-LICENSE.txt`；Go 模块和工具链源文件来自本机已校验缓存。输出目录必须是新路径。
+
+```powershell
+.\libs\prepare_package_notices.ps1 `
+  -DependencyRoot build/core-upgrade-check `
+  -NoticesDirectory build/core-upgrade-check/package-notices-release `
+  -GoPath 'C:/Program Files/Go/bin/go.exe'
+```
+
+打包脚本只将构建程序与指定资源装入全新的临时目录，不使用旧部署目录中的其他文件。
 
 ```powershell
 .\libs\package_windows.ps1 `

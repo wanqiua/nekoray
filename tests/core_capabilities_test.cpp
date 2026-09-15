@@ -186,6 +186,51 @@ private slots:
         QVERIFY(hash != boxContext.Fingerprint());
     }
 
+    void preparingAChainDoesNotRetagTheRunningNode() {
+        const auto running = node("http");
+        const auto other = node("http");
+        const auto chain = node("chain");
+        chain->ChainBean()->list = {running->id, other->id};
+        running->traffic_data->id = running->id;
+        running->traffic_data->tag = "proxy";
+        other->traffic_data->id = -1;
+        other->traffic_data->tag = "unstarted-other";
+        chain->traffic_data->id = -1;
+        chain->traffic_data->tag = "unstarted-chain";
+        const auto bindingTag = [](const std::shared_ptr<BuildConfigResult> &result, int id) {
+            for (const auto &binding: result->trafficBindings) {
+                if (binding.id == id) return QString::fromStdString(binding.tag);
+            }
+            return QString();
+        };
+        for (int target: {int(CoreType::V2RAY), int(CoreType::SING_BOX)}) {
+            const auto context = CaptureBuildConfigContext(target);
+            const auto original = BuildConfig(running, false, false, context);
+            QVERIFY2(original->error.isEmpty(), qPrintable(original->error));
+            QCOMPARE(bindingTag(original, running->id), QString("proxy"));
+            for (bool probe: {false, true}) {
+                const auto candidate = BuildConfig(chain, probe, false, context);
+                QVERIFY2(candidate->error.isEmpty(), qPrintable(candidate->error));
+                QCOMPARE(running->traffic_data->id, running->id);
+                QCOMPARE(QString::fromStdString(running->traffic_data->tag), QString("proxy"));
+                QCOMPARE(other->traffic_data->id, -1);
+                QCOMPARE(QString::fromStdString(other->traffic_data->tag), QString("unstarted-other"));
+                QCOMPARE(chain->traffic_data->id, -1);
+                QCOMPARE(QString::fromStdString(chain->traffic_data->tag), QString("unstarted-chain"));
+                QCOMPARE(bindingTag(original, running->id), QString("proxy"));
+                if (probe) {
+                    QVERIFY(candidate->trafficBindings.isEmpty());
+                    QVERIFY(candidate->outboundStats.isEmpty());
+                } else {
+                    QCOMPARE(candidate->trafficBindings.size(), 3);
+                    QCOMPARE(bindingTag(candidate, running->id), "g-" + QString::number(running->id));
+                    QCOMPARE(bindingTag(candidate, other->id), QString("proxy"));
+                    QCOMPARE(bindingTag(candidate, chain->id), QString("proxy"));
+                }
+            }
+        }
+    }
+
     void defaultSettingsRemainPortable_data() {
         QTest::addColumn<int>("sourceCore");
         QTest::addColumn<QString>("protocol");
@@ -420,6 +465,88 @@ private slots:
         QVERIFY(!ResolveCore(ent, CoreType::V2RAY).xraySupported);
     }
 
+    void domainNodeProbeKeepsItsConfiguredDnsResolver() {
+        const auto ent = node("http");
+        dataStore->routing->direct_dns = "192.0.2.53";
+        dataStore->routing->direct_dns_strategy = "use_ip4";
+        dataStore->core_box_underlying_dns = "192.0.2.54";
+        for (bool probe: {false, true}) {
+            const auto built = BuildConfig(ent, probe, false, CaptureBuildConfigContext(CoreType::SING_BOX));
+            QVERIFY2(built->error.isEmpty(), qPrintable(built->error));
+            const auto dns = built->coreConfig["dns"].toObject();
+            QSet<QString> servers;
+            for (const auto &entry: dns["servers"].toArray()) {
+                const auto server = entry.toObject();
+                servers.insert(server["tag"].toString());
+                if (server["tag"] == "dns-direct") {
+                    QCOMPARE(server["address"].toString(), QString("192.0.2.53"));
+                    QCOMPARE(server["strategy"].toString(), QString("ipv4_only"));
+                }
+            }
+            QVERIFY(servers.contains("dns-direct"));
+            const auto nodeResolver = outbound(built->coreConfig)["domain_resolver"].toObject();
+            QCOMPARE(nodeResolver["server"].toString(), QString("dns-direct"));
+            QCOMPARE(nodeResolver["strategy"].toString(), QString("ipv4_only"));
+            for (const auto &entry: dns["rules"].toArray()) {
+                const auto resolver = entry.toObject()["server"].toString();
+                QVERIFY2(resolver.isEmpty() || servers.contains(resolver), qPrintable(resolver));
+            }
+        }
+        dataStore->routing->outbound_domain_strategy = "UseIPv6";
+        const auto explicitStrategy = BuildConfig(ent, true, false, CaptureBuildConfigContext(CoreType::SING_BOX));
+        QVERIFY2(explicitStrategy->error.isEmpty(), qPrintable(explicitStrategy->error));
+        QCOMPARE(outbound(explicitStrategy->coreConfig)["domain_resolver"].toObject()["strategy"].toString(), QString("ipv6_only"));
+
+        coreType = CoreType::SING_BOX;
+        dataStore->routing->use_dns_object = true;
+        dataStore->routing->dns_object = "{\"servers\":[{\"type\":\"local\",\"tag\":\"custom-dns\"}]}";
+        const auto customDns = BuildConfig(ent, true, false, CaptureBuildConfigContext(CoreType::SING_BOX));
+        QVERIFY2(customDns->error.isEmpty(), qPrintable(customDns->error));
+        QVERIFY(!outbound(customDns->coreConfig).contains("domain_resolver"));
+    }
+
+    void boxBootstrapDnsOverrideIsNotDroppedWhenSelectingXray() {
+        coreType = CoreType::SING_BOX;
+        dataStore->routing = std::make_unique<Routing>();
+        dataStore->core_box_underlying_dns = "192.0.2.53";
+        const auto ent = node("http");
+        const auto resolution = ResolveCore(ent, CoreType::V2RAY);
+        QVERIFY(!resolution.xraySupported);
+        QVERIFY(resolution.xrayReason.contains("DNS"));
+        QCOMPARE(resolution.targetCore, int(CoreType::SING_BOX));
+        QVERIFY(BuildConfig(ent, true, false, CaptureBuildConfigContext(CoreType::SING_BOX))->error.isEmpty());
+        QVERIFY(!BuildConfig(ent, true, false, CaptureBuildConfigContext(CoreType::V2RAY))->error.isEmpty());
+        QCOMPARE(dataStore->core_box_underlying_dns, QString("192.0.2.53"));
+        dataStore->core_box_underlying_dns.clear();
+        QVERIFY(ResolveCore(ent, CoreType::V2RAY).xraySupported);
+    }
+
+    void xrayPreservesUdpDnsPortsAndLiteralAddresses() {
+        const auto ent = node("http");
+        dataStore->routing->remote_dns = "udp://127.0.0.1:5301";
+        dataStore->routing->direct_dns = "udp://[2001:db8::53]:5302";
+        dataStore->routing->dns_final_out = "proxy";
+        auto built = BuildConfig(ent, false, false, CaptureBuildConfigContext(CoreType::V2RAY));
+        QVERIFY2(built->error.isEmpty(), qPrintable(built->error));
+        const auto servers = built->coreConfig["dns"].toObject()["servers"].toArray();
+        QCOMPARE(servers[0].toObject()["address"].toString(), QString("127.0.0.1"));
+        QCOMPARE(servers[0].toObject()["port"].toInt(), 5301);
+        QCOMPARE(servers[1].toObject()["address"].toString(), QString("2001:db8::53"));
+        QCOMPARE(servers[1].toObject()["port"].toInt(), 5302);
+        bool literalRoute = false;
+        for (const auto &entry: built->coreConfig["routing"].toObject()["rules"].toArray()) {
+            const auto rule = entry.toObject();
+            literalRoute |= rule["outboundTag"] == "direct" && rule["ip"].toArray().contains("2001:db8::53");
+        }
+        QVERIFY(literalRoute);
+        QCOMPARE(dataStore->routing->direct_dns, QString("udp://[2001:db8::53]:5302"));
+        dataStore->routing->direct_dns = "127.0.0.1:5303";
+        built = BuildConfig(ent, true, false, CaptureBuildConfigContext(CoreType::V2RAY));
+        const auto direct = built->coreConfig["dns"].toObject()["servers"].toArray().first().toObject();
+        QCOMPARE(direct["address"].toString(), QString("127.0.0.1"));
+        QCOMPARE(direct["port"].toInt(), 5303);
+    }
+
     void tunPreservesPortsDnsRulesAuthAndFakeIp() {
         auto ent = node("vless");
         dataStore->spmode_vpn = true;
@@ -455,6 +582,139 @@ private slots:
         }
         dataStore->routing->use_dns_object = true;
         QVERIFY(!BuildVPNSingBoxConfig(CaptureBuildConfigContext(CoreType::SING_BOX, true))->error.isEmpty());
+    }
+
+    void tunDnsRespectsExplicitScopeBeforeHijack() {
+        dataStore->spmode_vpn = true;
+        dataStore->vpn_internal_tun = false;
+        dataStore->vpn_rule_cidr = "203.0.113.0/24";
+        dataStore->vpn_rule_process.clear();
+        dataStore->fake_dns = false;
+        for (bool whitelist: {false, true}) {
+            dataStore->vpn_rule_white = whitelist;
+            auto context = CaptureBuildConfigContext(CoreType::SING_BOX, true);
+            context.tunProxyPort = 31919;
+            const auto built = BuildVPNSingBoxConfig(context);
+            QVERIFY2(built->error.isEmpty(), qPrintable(built->error));
+            const auto rules = built->coreConfig["route"].toObject()["rules"].toArray();
+            int scope = -1, hijack = -1;
+            for (int i = 0; i < rules.size(); ++i) {
+                const auto rule = rules[i].toObject();
+                if (rule["outbound"] == "bypass" && (rule.contains("ip_cidr") || rule["type"] == "logical")) scope = i;
+                if (hijack < 0 && rule["outbound"] == "dns-out") hijack = i;
+            }
+            QVERIFY(scope >= 0 && hijack > scope);
+        }
+        dataStore->vpn_rule_cidr.clear();
+        dataStore->fake_dns = true;
+        auto context = CaptureBuildConfigContext(CoreType::SING_BOX, true);
+        context.tunProxyPort = 31919;
+        const auto bypassAll = BuildVPNSingBoxConfig(context);
+        QVERIFY2(bypassAll->error.isEmpty(), qPrintable(bypassAll->error));
+        const auto route = bypassAll->coreConfig["route"].toObject();
+        QCOMPARE(route["final"].toString(), QString("bypass"));
+        for (const auto &entry: route["rules"].toArray()) QVERIFY(entry.toObject()["outbound"] != "dns-out");
+    }
+
+    void tunFakeIpRejectsUnresolvedCidrScope_data() {
+        QTest::addColumn<int>("sourceCore");
+        QTest::addColumn<bool>("whitelist");
+        QTest::addColumn<bool>("mixedProcesses");
+        QTest::addColumn<QString>("strategy");
+        for (int source: {int(CoreType::V2RAY), int(CoreType::SING_BOX)}) {
+            for (bool whitelist: {false, true}) {
+                for (bool mixed: {false, true}) {
+                    for (const auto &strategy: {QString("AsIs"), QString()}) {
+                        const auto name = QString("%1-%2-%3-%4").arg(source)
+                            .arg(whitelist ? "whitelist" : "blacklist")
+                            .arg(mixed ? "mixed" : "cidr-only").arg(strategy.isEmpty() ? "empty" : strategy).toLatin1();
+                        QTest::newRow(name.constData()) << source << whitelist << mixed << strategy;
+                    }
+                }
+            }
+        }
+        QTest::newRow("box-native-as-is") << int(CoreType::SING_BOX) << true << false << QString("as_is");
+    }
+
+    void tunFakeIpRejectsUnresolvedCidrScope() {
+        QFETCH(int, sourceCore);
+        QFETCH(bool, whitelist);
+        QFETCH(bool, mixedProcesses);
+        QFETCH(QString, strategy);
+        coreType = sourceCore;
+        dataStore->spmode_vpn = true;
+        // The legacy internal flag never exempts Xray's external helper.
+        dataStore->vpn_internal_tun = sourceCore == CoreType::V2RAY;
+        dataStore->fake_dns = true;
+        dataStore->vpn_rule_white = whitelist;
+        dataStore->vpn_rule_cidr = "0.0.0.0/0\n::/0";
+        dataStore->vpn_rule_process = mixedProcesses ? "synthetic.exe" : "";
+        dataStore->routing->domain_strategy = strategy;
+        const auto savedSettings = dataStore->ToJson();
+        const auto savedRouting = dataStore->routing->ToJson();
+        auto context = CaptureBuildConfigContext(CoreType::SING_BOX, true);
+        context.tunProxyPort = 31919;
+        const auto capturedSettings = context.settings->ToJson();
+        const auto capturedRouting = context.settings->routing->ToJson();
+
+        const auto built = BuildVPNSingBoxConfig(context);
+        QVERIFY(built->error.contains("FakeIP"));
+        QVERIFY(built->error.contains(QString::fromUtf8("IP 范围")));
+        QVERIFY(built->error.contains(QString::fromUtf8("进程范围")));
+        QVERIFY(built->coreConfig.isEmpty());
+        QCOMPARE(dataStore->ToJson(), savedSettings);
+        QCOMPARE(dataStore->routing->ToJson(), savedRouting);
+        QCOMPARE(context.settings->ToJson(), capturedSettings);
+        QCOMPARE(context.settings->routing->ToJson(), capturedRouting);
+        QCOMPARE(dataStore->routing->domain_strategy, strategy);
+        QCOMPARE(context.settings->routing->domain_strategy, strategy);
+        QVERIFY(dataStore->spmode_vpn && context.settings->spmode_vpn);
+    }
+
+    void tunFakeIpKeepsSupportedScopeSettings() {
+        auto build = [&] {
+            auto context = CaptureBuildConfigContext(CoreType::SING_BOX, true);
+            context.tunProxyPort = 31919;
+            return BuildVPNSingBoxConfig(context);
+        };
+        dataStore->spmode_vpn = true;
+        dataStore->vpn_internal_tun = false;
+        dataStore->vpn_rule_process = "synthetic.exe";
+        for (bool whitelist: {false, true}) {
+            dataStore->vpn_rule_white = whitelist;
+            dataStore->fake_dns = false;
+            dataStore->vpn_rule_cidr = "203.0.113.0/24\n2001:db8::/32";
+            auto built = build();
+            QVERIFY2(built->error.isEmpty(), qPrintable(built->error));
+            QVERIFY(!built->coreConfig["dns"].toObject().contains("fakeip"));
+
+            dataStore->fake_dns = true;
+            dataStore->vpn_rule_cidr = "  # No IP ranges\n";
+            const auto savedSettings = dataStore->ToJson();
+            const auto savedRouting = dataStore->routing->ToJson();
+            built = build();
+            QVERIFY2(built->error.isEmpty(), qPrintable(built->error));
+            QVERIFY(built->coreConfig["dns"].toObject()["fakeip"].toObject()["enabled"].toBool());
+            QVERIFY(inbound(built->coreConfig, "tun-in")["domain_strategy"].toString().isEmpty());
+            for (const auto &entry: built->coreConfig["route"].toObject()["rules"].toArray())
+                QVERIFY(entry.toObject()["action"] != "resolve");
+            QCOMPARE(dataStore->ToJson(), savedSettings);
+            QCOMPARE(dataStore->routing->ToJson(), savedRouting);
+        }
+
+        coreType = CoreType::SING_BOX;
+        dataStore->vpn_rule_cidr = "203.0.113.0/24";
+        dataStore->routing->domain_strategy = "prefer_ipv4";
+        auto built = build();
+        QVERIFY2(built->error.isEmpty(), qPrintable(built->error));
+        QCOMPARE(inbound(built->coreConfig, "tun-in")["domain_strategy"].toString(), QString("prefer_ipv4"));
+        QCOMPARE(dataStore->routing->domain_strategy, QString("prefer_ipv4"));
+
+        // Preserve the old internal-TUN rule ordering and interpretation.
+        dataStore->vpn_internal_tun = true;
+        dataStore->routing->domain_strategy = "AsIs";
+        built = build();
+        QVERIFY2(built->error.isEmpty(), qPrintable(built->error));
     }
 
     void externalFingerprintUsesContentInsteadOfTemporaryNames() {

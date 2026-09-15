@@ -1,4 +1,4 @@
-评估及复核日期：2026-09-13。对象是本地 Nekoray 3.26 二开版本，以及已交付的 Matsuri Xray 1.8.4 兼容内核和 sing-box 1.14.0。本报告记录技术事实及边界，实施范围与用户操作以复核后的[开发计划](C:/Users/zqf/Documents/aaa/nekoray/docs/Dynamic_Core_Development_Plan.md)为准。本轮只更新评估与计划，没有修改业务代码、替换内核或改写用户配置。
+评估及复核日期：2026-09-13。对象是本地 Nekoray 3.26 二开版本，以及已交付的 Matsuri Xray 1.8.4 兼容内核和 sing-box 1.14.0。本报告记录开发前复核的技术事实及边界，实施范围与用户操作以复核后的[开发计划](Dynamic_Core_Development_Plan.md)为准。当前实现和验证状态见[实现说明](Dynamic_Core_Implementation.md)。
 
 **结论：逐节点手动/自动选核可行。首个正式版本应一起完成不重启界面的切换、混合节点批测、订阅偏好持久化、异常恢复和基础 TUN 切换。已有 TCP、UDP、QUIC 会话不能直接从一个内核迁移到另一个内核，普通切换会产生重连。**
 
@@ -6,7 +6,7 @@
 
 本次同时阅读了固定版本的上游源码、随源码提供的文档及本项目的构建标签，并对当前便携包中的 sing-box 做了 16 组配置检查。检查使用虚构凭据和回环地址，仅调用 CLI 的 check，不启动代理，不连接用户节点。9 组成功构造配置，7 组得到预期的不支持错误。**配置检查证明功能已编译、字段可解析；新协议的真实服务端互通仍需开发阶段验证。**
 
-检查记录：[results.json](C:/Users/zqf/Documents/aaa/nekoray/build/core-feature-assessment-20260913/results.json)。被检查的 sing-box SHA-256 为 4305567fa5e5b5f8093fa921a51b5b20b08554b21f289b6df5e768f95dba8b8d，与安装目录的版本清单一致。
+检查记录：`build/core-feature-assessment-20260913/results.json`（本地验收日志）。被检查的 sing-box SHA-256 为 4305567fa5e5b5f8093fa921a51b5b20b08554b21f289b6df5e768f95dba8b8d，与安装目录的版本清单一致。
 
 **适合接入界面的协议**
 
@@ -61,7 +61,7 @@ USB/IP、服务端证书签发、服务端 API 托管和 Linux 网络命名空�
 
 能力判定应覆盖协议、加密方式、传输、TLS/REALITY、flow、指纹、插件、UDP、mux、endpoint、编译标签、自定义配置以及当前代理/TUN 模式和 DNS/路由设置，并同时检查 GUI 适配器能否保留这些参数。比如两边都有 VLESS，不代表全部 VLESS 节点能互换；配置解析通过也不等于两边的流量行为完全相同。
 
-复核发现，[Xray SOCKS 生成器](C:/Users/zqf/Documents/aaa/nekoray/fmt/Bean2CoreObj_ray.cpp:76) 未写入 SOCKS4 的 settings.version，不能因此误认为 Xray 内核不支持 SOCKS4。[sing-box 共用流设置生成器](C:/Users/zqf/Documents/aaa/nekoray/fmt/Bean2CoreObj_box.cpp:81) 也不能把 TLS 或 WS/gRPC 字段无条件用于 SOCKS/HTTP。mKCP 的 REALITY 等组合须按实际传输实现拒绝不受支持的安全语义，不能依赖解析通过就放行。
+复核发现，[Xray SOCKS 生成器](../fmt/Bean2CoreObj_ray.cpp) 未写入 SOCKS4 的 settings.version，不能因此误认为 Xray 内核不支持 SOCKS4。[sing-box 共用流设置生成器](../fmt/Bean2CoreObj_box.cpp) 也不能把 TLS 或 WS/gRPC 字段无条件用于 SOCKS/HTTP。mKCP 的 REALITY 等组合须按实际传输实现拒绝不受支持的安全语义，不能依赖解析通过就放行。
 
 **建议的交互规则**
 
@@ -71,15 +71,15 @@ USB/IP、服务端证书签发、服务端 API 托管和 Linux 网络命名空�
 4. 未运行节点显示预计内核，运行区显示确认启动的实际内核，延迟标注当次测试内核。两边均不支持时明确原因，保留节点。
 5. 目标启动失败时恢复原运行上下文；没有更新选择时恢复原界面选择，有更新选择时先完成恢复再处理最新意图，旧回调不能覆盖新选择。恢复失败如实显示断开。网络超时、认证和证书失败不触发后台反复换核；可提供不改变当前连接的“测试另一内核”操作。
 6. 默认每个节点只测一个内核，两个内核共用总并发上限。混合批测、历史结果、排序和“移除不可用”作为同一功能交付。
-7. 自动选择不修改节点加密、TLS 验证和 flow 等原始值，不做无依据的专属 JSON 转换；正常切换不弹重复确认。详细的操作对象、失败提示和验收见[开发计划](C:/Users/zqf/Documents/aaa/nekoray/docs/Dynamic_Core_Development_Plan.md)。
+7. 自动选择不修改节点加密、TLS 验证和 flow 等原始值，不做无依据的专属 JSON 转换；正常切换不弹重复确认。详细的操作对象、失败提示和验收见[开发计划](Dynamic_Core_Development_Plan.md)。
 
 **当前代码为什么需要改造**
 
-目前基本设置中的切换逻辑写入 groups/coreType 并重启整个程序，见 [dialog_basic_settings.cpp](C:/Users/zqf/Documents/aaa/nekoray/ui/dialog_basic_settings.cpp:221)。[NekoGui.hpp](C:/Users/zqf/Documents/aaa/nekoray/main/NekoGui.hpp:11) 中的 coreType 和 IS_NEKO_BOX 是全局状态。
+目前基本设置中的切换逻辑写入 groups/coreType 并重启整个程序，见 [dialog_basic_settings.cpp](../ui/dialog_basic_settings.cpp)。[NekoGui.hpp](../main/NekoGui.hpp) 中的 coreType 和 IS_NEKO_BOX 是全局状态。
 
-[main.cpp](C:/Users/zqf/Documents/aaa/nekoray/main/main.cpp:162) 只加载其中一份设置：groups/nekoray.json 或 groups/nekobox.json；路由目录也分为 routes / routes_box。[mainwindow.cpp](C:/Users/zqf/Documents/aaa/nekoray/ui/mainwindow.cpp:400) 只准备一个主内核进程和一组 RPC 端口/token。
+[main.cpp](../main/main.cpp) 只加载其中一份设置：groups/nekoray.json 或 groups/nekobox.json；路由目录也分为 routes / routes_box。[mainwindow.cpp](../ui/mainwindow.cpp) 只准备一个主内核进程和一组 RPC 端口/token。
 
-[ConfigBuilder.cpp](C:/Users/zqf/Documents/aaa/nekoray/db/ConfigBuilder.cpp:57) 根据全局值生成配置；[mainwindow_grpc.cpp](C:/Users/zqf/Documents/aaa/nekoray/ui/mainwindow_grpc.cpp:43) 的启动、测试使用 defaultClient；[TrafficLooper.cpp](C:/Users/zqf/Documents/aaa/nekoray/db/traffic/TrafficLooper.cpp:26) 也从这个客户端查询统计。节点的延迟目前只存一个数值，见 [ProxyEntity.hpp](C:/Users/zqf/Documents/aaa/nekoray/db/ProxyEntity.hpp:32)。
+[ConfigBuilder.cpp](../db/ConfigBuilder.cpp) 根据全局值生成配置；[mainwindow_grpc.cpp](../ui/mainwindow_grpc.cpp) 的启动、测试使用 defaultClient；[TrafficLooper.cpp](../db/traffic/TrafficLooper.cpp) 也从这个客户端查询统计。节点的延迟目前只存一个数值，见 [ProxyEntity.hpp](../db/ProxyEntity.hpp)。
 
 另外，CoreProcess 的退出、自动重启和 token 也使用全局状态；部分 VPN 重置逻辑按进程名处理 nekobox_core。双进程后必须改成实例/PID 所有权管理，避免关闭另一个 RPC 内核、TUN 辅助进程或用户在其他目录运行的实例。
 
@@ -87,9 +87,9 @@ USB/IP、服务端证书签发、服务端 API 托管和 Linux 网络命名空�
 
 复核还发现三个直接影响首版便捷性和数据保留的现有问题：
 
-- [测试写回](C:/Users/zqf/Documents/aaa/nekoray/ui/mainwindow_grpc.cpp:225) 将多种错误统一写成负延迟，[移除不可用](C:/Users/zqf/Documents/aaa/nekoray/ui/mainwindow.cpp:1482) 按负延迟删除。能力不支持、核心异常、取消和过期结果必须单列，不能让它们成为删除候选。
-- [订阅更新](C:/Users/zqf/Documents/aaa/nekoray/sub/GroupUpdater.cpp:602) 有解析前删除全部旧节点的分支，且[首项匹配](C:/Users/zqf/Documents/aaa/nekoray/sub/GroupUpdater.cpp:654) 使用 deleted_index > 0。必须先保留本地元数据、解析和匹配后再提交，并覆盖首项、重排、重名及清空更新场景。
-- [共享 RPC](C:/Users/zqf/Documents/aaa/nekoray/go/grpc_server/gen/libcore.proto:6) 当前没有 Check/Capabilities 接口。预检与能力发现需要明确新增，不能把它们当成已有功能。
+- [测试写回](../ui/mainwindow_grpc.cpp) 将多种错误统一写成负延迟，[移除不可用](../ui/mainwindow.cpp) 按负延迟删除。能力不支持、核心异常、取消和过期结果必须单列，不能让它们成为删除候选。
+- [订阅更新](../sub/GroupUpdater.cpp) 有解析前删除全部旧节点的分支，且[首项匹配](../sub/GroupUpdater.cpp) 使用 deleted_index > 0。必须先保留本地元数据、解析和匹配后再提交，并覆盖首项、重排、重名及清空更新场景。
+- [共享 RPC](../go/grpc_server/gen/libcore.proto) 当前没有 Check/Capabilities 接口。预检与能力发现需要明确新增，不能把它们当成已有功能。
 
 **建议先实现的运行方式**
 
@@ -122,7 +122,7 @@ flowchart TD
 | 切换后新连接走新内核，旧连接继续使用旧内核 | 有条件可行 | 稳定前端入口、同时保留旧实例、排空旧连接和实例回收；不是把旧会话迁移到新内核 |
 | 将已建立的 TCP/TLS/QUIC 会话直接转移到另一个内核 | 不可作为通用功能承诺 | 两个内核的协议栈、握手、加密状态互不共享 |
 
-当前已经有独立的 sing-box TUN → 本地 SOCKS 路径，见 [WriteVPNSingBoxConfig](C:/Users/zqf/Documents/aaa/nekoray/db/ConfigBuilder.cpp:1059) 和 [TUN 模板](C:/Users/zqf/Documents/aaa/nekoray/res/vpn/sing-box-vpn.json)。首版优先复用这条路径，并处理现有 sing-box 内置 TUN 的转换或受控重启。无需为基础切核先新建一整套 selector 前端；按实例/PID 管理进程是前置条件。
+当前已经有独立的 sing-box TUN → 本地 SOCKS 路径，见 [WriteVPNSingBoxConfig](../db/ConfigBuilder.cpp) 和 [TUN 模板](../res/vpn/sing-box-vpn.json)。首版优先复用这条路径，并处理现有 sing-box 内置 TUN 的转换或受控重启。无需为基础切核先新建一整套 selector 前端；按实例/PID 管理进程是前置条件。
 
 基础 TUN 必须覆盖用户原有开关、权限、DNS、FakeIP 和路由意图。切换可以有短暂重连，但不能自动关闭 TUN 或放宽规则来绕过兼容问题。未验收 TUN 的版本只能作为普通代理预览。
 
@@ -136,6 +136,6 @@ flowchart TD
 4. 前三步验收后形成首个完整版本，再新增 AnyTLS、Snell 和 Hysteria2 必要新选项。新增协议的导入、编辑、测试、导出和订阅更新同时完成，高级项默认折叠。
 5. SSH、ShadowTLS、WireGuard 编辑、NaiveProxy、OpenVPN/OpenConnect、Tailscale 及保留旧连接的方案按实际需要独立安排。
 
-首版以“旧配置直接使用 → 导入 → 连接 → 手动或自动选核 → 混合批测 → 更新订阅 → 重启后保留选择 → TUN 下重复操作”为验收主线。保持现有 Xray 兼容内核，后续协议共用同一套选核和测试机制。具体阶段、状态文案及场景清单见[复核后的开发计划](C:/Users/zqf/Documents/aaa/nekoray/docs/Dynamic_Core_Development_Plan.md)。
+首版以“旧配置直接使用 → 导入 → 连接 → 手动或自动选核 → 混合批测 → 更新订阅 → 重启后保留选择 → TUN 下重复操作”为验收主线。保持现有 Xray 兼容内核，后续协议共用同一套选核和测试机制。具体阶段、状态文案及场景清单见[复核后的开发计划](Dynamic_Core_Development_Plan.md)。
 
 参考资料：[sing-box 1.14.0 发布说明](https://github.com/SagerNet/sing-box/releases/tag/v1.14.0)、[固定版本变更记录](https://github.com/SagerNet/sing-box/blob/v1.14.0/docs/changelog.md)、[出站协议文档](https://sing-box.sagernet.org/configuration/outbound/)、[V2Ray 传输](https://sing-box.sagernet.org/configuration/shared/v2ray-transport/)、[NaiveProxy](https://sing-box.sagernet.org/configuration/outbound/naive/)、[Selector](https://sing-box.sagernet.org/configuration/outbound/selector/)。

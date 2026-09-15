@@ -354,6 +354,9 @@ namespace NekoGui {
             return QObject::tr("当前 Xray 无法保留出站地址优先级策略 %1").arg(settings->routing->outbound_domain_strategy);
         }
         if (targetCore == sourceCore) return {};
+        if (sourceCore == CoreType::SING_BOX && targetCore == CoreType::V2RAY && NonEmpty(settings->core_box_underlying_dns)) {
+            return QObject::tr("当前 sing-box 的底层 DNS 覆盖无法在 Xray 中等价保留");
+        }
         if (HasCustomObject(settings->custom_inbound, "inbounds")) return QObject::tr("自定义入站属于 %1，切换前需要适配其字段").arg(CoreDisplayName(sourceCore));
         if (HasCustomObject(settings->custom_route_global, "rules") || HasCustomObject(settings->routing->custom, "rules")) {
             return QObject::tr("自定义路由属于 %1，切换前需要适配其规则").arg(CoreDisplayName(sourceCore));
@@ -398,8 +401,18 @@ namespace NekoGui {
             if (!ExternalCoreExists(settings, custom->core)) return QObject::tr("缺少此节点需要的外部核心：%1").arg(custom->core);
             return {};
         }
+        if (auto anytls = dynamic_cast<NekoGui_fmt::AnyTLSBean *>(ent->bean.get())) {
+            if (targetCore != CoreType::SING_BOX) return QObject::tr("AnyTLS 由 sing-box 支持");
+            return anytls->Validate();
+        }
+        if (auto snell = dynamic_cast<NekoGui_fmt::SnellBean *>(ent->bean.get())) {
+            if (targetCore != CoreType::SING_BOX) return QObject::tr("Snell 由 sing-box 支持");
+            return snell->Validate();
+        }
         const auto quic = dynamic_cast<NekoGui_fmt::QUICBean *>(ent->bean.get());
         if (quic != nullptr) {
+            const auto validation = quic->Validate();
+            if (!validation.isEmpty()) return validation;
             const bool native = !quic->forceExternal && (quic->proxy_type != NekoGui_fmt::QUICBean::proxy_Hysteria ||
                                                        quic->hyProtocol == NekoGui_fmt::QUICBean::hysteria_protocol_udp);
             if (native) {

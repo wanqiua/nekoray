@@ -33,6 +33,16 @@ namespace NekoGui {
 
         [[nodiscard]] QByteArray Fingerprint() const;
 
+        struct TrafficBinding {
+            std::shared_ptr<NekoGui_traffic::TrafficData> data;
+            int id;
+            std::string tag;
+        };
+        // Apply these under TrafficLooper::loop_mutex only when this session
+        // is committed (including rollback). Preparing a candidate must not
+        // modify a currently running profile's shared traffic metadata.
+        QList<TrafficBinding> trafficBindings;
+
         QList<std::shared_ptr<NekoGui_traffic::TrafficData>> outboundStats; // all, but not including "bypass" "block"
         std::shared_ptr<NekoGui_traffic::TrafficData> outboundStat;         // main
         QStringList ignoreConnTag;

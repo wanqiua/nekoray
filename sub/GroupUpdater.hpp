@@ -21,7 +21,7 @@ namespace NekoGui_sub {
         QList<std::shared_ptr<NekoGui::ProxyEntity>> updated_order; // 新增的配置，按照导入时处理的先后排序
 
     private:
-        bool ParseLink(const QString &str);
+        bool ParseLink(const QString &str, QString *error = nullptr);
         bool AddParsedProfile(const std::shared_ptr<NekoGui::ProxyEntity> &profile);
         void Reject(const QString &reason);
     };

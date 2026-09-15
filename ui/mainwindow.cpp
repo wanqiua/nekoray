@@ -23,6 +23,7 @@
 #include "3rdparty/qrcodegen.hpp"
 #include "3rdparty/VT100Parser.hpp"
 #include "3rdparty/qv2ray/v2/components/proxy/QvProxyConfigurator.hpp"
+#include "sys/WindowsSystemProxy.hpp"
 #include "3rdparty/qv2ray/v2/ui/LogHighlighter.hpp"
 
 #ifndef NKR_NO_ZXING
@@ -694,6 +695,15 @@ void MainWindow::on_menu_exit_triggered() {
         speedtest_current_group(114514);
         //
         neko_set_spmode_system_proxy(false, false);
+#ifdef Q_OS_WIN
+        if (NekoGui_sys::WindowsSystemProxyRestorePending()) {
+            NekoGui::dataStore->prepare_exit = false;
+            mu_exit.unlock();
+            core_notice_message(tr("系统代理尚未恢复，已暂停退出并保留当前连接；请重试关闭系统代理或再次退出。"));
+            refresh_status();
+            return;
+        }
+#endif
         neko_set_spmode_vpn(false, false);
         if (vpn_changing || vpn_pid != 0 || NekoGui::dataStore->spmode_vpn) {
             mu_exit.unlock(); // retry
@@ -711,12 +721,14 @@ void MainWindow::on_menu_exit_triggered() {
             sem_stopped.acquire();
             stop_core_daemon();
             runOnUiThread([=] {
+                exit_completed = true;
                 on_menu_exit_triggered(); // continue exit progress
             });
         });
         return;
     }
     //
+    if (!exit_completed) return;
     MF_release_runguard();
     if (exit_reason == 1) {
         QDir::setCurrent(QApplication::applicationDirPath());
@@ -757,6 +769,8 @@ void MainWindow::on_menu_exit_triggered() {
 
 void MainWindow::neko_set_spmode_system_proxy(bool enable, bool save) {
     if (enable != NekoGui::dataStore->spmode_system_proxy) {
+        QString proxyError;
+        bool proxyChanged = false;
         if (enable) {
 #if defined(Q_OS_WIN)
             if (active_core() != NekoGui::CoreType::SING_BOX && !IsValidPort(NekoGui::dataStore->inbound_http_port)) {
@@ -772,9 +786,20 @@ void MainWindow::neko_set_spmode_system_proxy(bool enable, bool save) {
             auto socks_port = NekoGui::dataStore->inbound_socks_port;
             auto http_port = NekoGui::dataStore->inbound_http_port;
             if (!IsValidPort(http_port) && active_core() == NekoGui::CoreType::SING_BOX) http_port = socks_port;
-            SetSystemProxy(http_port, socks_port);
+            proxyChanged = SetSystemProxy(http_port, socks_port, &proxyError);
         } else {
-            ClearSystemProxy();
+            proxyChanged = ClearSystemProxy(&proxyError);
+        }
+        if (!proxyChanged) {
+            const auto message = tr("System proxy settings could not be updated. Check the system settings before retrying.") +
+                                 (proxyError.isEmpty() ? QString{} : "\n" + proxyError);
+#ifdef Q_OS_WIN
+            if (NekoGui_sys::WindowsSystemProxyRestorePending()) NekoGui::dataStore->spmode_system_proxy = true;
+#endif
+            MW_show_log(message);
+            refresh_status();
+            if (save && !NekoGui::dataStore->prepare_exit) QMessageBox::warning(this, software_name, message);
+            return;
         }
     }
 

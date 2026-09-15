@@ -95,6 +95,10 @@ void SetTrafficSession(const std::shared_ptr<RunningCoreSession> &session) {
 #ifndef NKR_NO_GRPC
     looper->client.reset();
     if (session) {
+        for (const auto &binding : session->built->trafficBindings) {
+            binding.data->id = binding.id;
+            binding.data->tag = binding.tag;
+        }
         looper->client = session->instance->client;
         looper->items = session->built->outboundStats;
         looper->proxy = session->built->outboundStat.get();
@@ -501,6 +505,7 @@ void MainWindow::process_core_intent() {
         };
     }
     core_switch_busy = true;
+    if (current_test_cancel) current_test_cancel->store(true);
     active_core_intent = intent;
     core_notice.clear();
     refresh_core_controls();
@@ -578,8 +583,10 @@ void MainWindow::process_core_intent() {
                 } else error = originalError + "\n" + error;
             }
         }
-        bool profileStillValid = true;
-        if (target) {
+        bool previousMayRestore = bool(previous);
+        const auto validateTarget = [&] {
+            bool profileStillValid = true;
+            if (!target) return true;
             QSemaphore verified;
             runOnUiThread([&] {
                 if (!guard) { profileStillValid = false; verified.release(); return; }
@@ -590,12 +597,14 @@ void MainWindow::process_core_intent() {
                 profileStillValid = !dataStore->prepare_exit && profileManager->GetProfile(target->profile->id) == target->profile &&
                                     (intent->recovery || (target->profileInputDigest == CoreConfigDigest(CoreProfileInputs(target->profile, visited)) &&
                                                          target->context.Fingerprint() == currentContext.Fingerprint()));
+                previousMayRestore = previous && profileManager->GetProfile(previous->profile->id) == previous->profile;
                 verified.release();
             }, this);
             verified.acquire();
-        }
+            return profileStillValid;
+        };
         // A superseded preparation must not release the old listener.
-        cancelled = target && (intent->sequence != core_intent_sequence.load() || !profileStillValid);
+        cancelled = target && (!validateTarget() || intent->sequence != core_intent_sequence.load());
         bool previousClosed = !previous;
         if (error.isEmpty() && !cancelled) {
             SetTrafficSession(nullptr);
@@ -612,17 +621,23 @@ void MainWindow::process_core_intent() {
                 } else succeeded = true;
             }
         }
+        if (succeeded && target && (!validateTarget() || !healthy(target))) {
+            succeeded = false;
+            cancelled = true;
+            error = tr("The node or settings changed during startup, or the core exited. The pending start was cancelled.");
+        }
         // Stop every partially started target before restoring old listeners.
         bool targetClosed = true;
         if (targetAttempted && !succeeded) {
             QString cleanupError;
             targetClosed = stop(target, cleanupError);
             if (!cleanupError.isEmpty()) error += "\n" + cleanupError;
+            if (targetClosed && resultingSession == target) resultingSession.reset();
             if (!targetClosed) resultingSession = target; // Retain ownership for retry.
         }
         const bool previousDied = previous && !touchedPrevious && !healthy(previous);
-        if (!succeeded && target && previous && (touchedPrevious || previousDied) && targetClosed &&
-            (previousClosed || previousDied) && !cancelled && !dataStore->prepare_exit) {
+        if (!succeeded && target && previousMayRestore && previous && (touchedPrevious || previousDied) && targetClosed &&
+            (previousClosed || previousDied) && (!cancelled || targetAttempted) && !dataStore->prepare_exit) {
             QString restoreError;
             bool unsupported = false;
             if (previousDied) stop(previous, restoreError);
@@ -652,8 +667,24 @@ void MainWindow::process_core_intent() {
         runOnUiThread([this, guard, intent, previous, target, resultingSession, error, succeeded, cancelled, healthy]() mutable {
             if (!guard) return;
             const auto previousId = previous ? previous->profile->id : -1;
+            const bool superseded = intent->sequence != core_intent_sequence.load();
             const bool exited = resultingSession && !healthy(resultingSession);
             const bool removed = resultingSession && profileManager->GetProfile(resultingSession->profile->id) != resultingSession->profile;
+            bool outdated = false;
+            if (resultingSession == target && target && !intent->recovery) {
+                auto context = CaptureBuildConfigContext(target->instance->core, true);
+                context.tunProxyPort = tun_proxy_port;
+                if (intent->prepareForTun) context.settings->spmode_vpn = true;
+                QSet<int> visited;
+                outdated = target->profileInputDigest != CoreConfigDigest(CoreProfileInputs(target->profile, visited)) ||
+                           target->context.Fingerprint() != context.Fingerprint();
+            }
+            if (outdated) {
+                succeeded = false;
+                cancelled = true;
+                error = tr("The node or settings changed during startup, or the core exited. The pending start was cancelled.");
+                SetTrafficSession(nullptr);
+            }
             if (exited) {
                 error += "\n" + tr("The core exited during the switch. Disconnected.");
                 SetTrafficSession(nullptr);
@@ -661,7 +692,7 @@ void MainWindow::process_core_intent() {
             }
             // Even an uncertain session stays owned until its Stop completes.
             core_session = resultingSession;
-            running = resultingSession && !removed && !exited ? resultingSession->profile : nullptr;
+            running = resultingSession && !removed && !exited && !outdated ? resultingSession->profile : nullptr;
             dataStore->UpdateStartedId(running ? running->id : -1919);
             dataStore->need_keep_vpn_off = running && resultingSession->built->needKeepVpnOff;
             dataStore->ignoreConnTag = running ? resultingSession->built->ignoreConnTag : QStringList{};
@@ -674,8 +705,8 @@ void MainWindow::process_core_intent() {
             }
             core_switch_busy = false;
             active_core_intent.reset();
-            if (!error.isEmpty()) core_notice_message(error.trimmed());
-            else if (succeeded && resultingSession) {
+            if (!superseded && !error.isEmpty()) core_notice_message(error.trimmed());
+            else if (!superseded && succeeded && resultingSession) {
                 core_notice = resultingSession->selectionNotice;
                 MW_show_log(tr("Connected using %1.").arg(CoreManager::Name(resultingSession->instance->core)));
             }
@@ -684,8 +715,17 @@ void MainWindow::process_core_intent() {
             refresh_status();
             refresh_core_controls();
             if (intent->signalStopped) sem_stopped.release();
-            if (intent->prepareForTun) tun_bridge_prepared(succeeded && resultingSession == target, cancelled);
-            if ((removed || exited) && !pending_core_intent) neko_stop();
+            if (intent->prepareForTun) tun_bridge_prepared(!superseded && succeeded && resultingSession == target, cancelled || superseded);
+            if ((removed || exited || outdated) && !pending_core_intent) {
+                if (previous && !dataStore->prepare_exit && profileManager->GetProfile(previous->profile->id) == previous->profile &&
+                    intent->profile && !intent->recovery) {
+                    auto recovery = std::make_shared<CoreSwitchIntent>();
+                    recovery->sequence = ++core_intent_sequence;
+                    recovery->profile = previous->profile;
+                    recovery->recovery = previous;
+                    pending_core_intent = recovery;
+                } else neko_stop();
+            }
             process_core_intent();
         }, this);
     });

@@ -13,6 +13,31 @@ import (
 
 type server struct{ grpc_server.BaseServer }
 
+// Probes dial the default outbound directly, so they must enforce the same
+// declared network restriction that the router enforces for normal traffic.
+// An inapplicable test is a local capability result, never a dead node.
+func testNetworkError(networks []string, in *gen.TestReq) error {
+	needsTCP := in.Mode == gen.TestMode_UrlTest || (in.Mode == gen.TestMode_FullTest &&
+		(in.FullLatency || in.FullSpeed || in.FullInOut))
+	needsUDP := in.Mode == gen.TestMode_FullTest && in.FullUdpLatency
+	for _, required := range []struct {
+		needed bool
+		name   string
+	}{{needsTCP, "tcp"}, {needsUDP, "udp"}} {
+		if !required.needed {
+			continue
+		}
+		allowed := false
+		for _, network := range networks {
+			allowed = allowed || network == required.name
+		}
+		if !allowed {
+			return fmt.Errorf("selected outbound does not support %s; this test is not applicable", required.name)
+		}
+	}
+	return nil
+}
+
 func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (*gen.ErrorResp, error) {
 	instanceMu.Lock()
 	defer instanceMu.Unlock()
@@ -44,6 +69,10 @@ func (s *server) Stop(ctx context.Context, in *gen.EmptyReq) (*gen.ErrorResp, er
 	if instance != nil {
 		if err := instance.Close(); err != nil {
 			out.Error = err.Error()
+			// Close caches its result. Keep this instance owned so a second
+			// Stop cannot turn an unconfirmed cleanup into an empty success,
+			// and Start cannot replace potentially retained privileged resources.
+			return out, nil
 		}
 		instance = nil
 	}
@@ -74,6 +103,10 @@ func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, 
 		if i == nil {
 			out.Error = "core is not running"
 			out.FailureCategory = gen.FailureCategory_FailureCore
+			return out, nil
+		}
+		if err = testNetworkError(i.Outbound().Default().Network(), in); err != nil {
+			grpc_server.SetTestError(out, err, gen.FailureCategory_FailureUnsupported)
 			return out, nil
 		}
 		if in.Mode == gen.TestMode_FullTest {

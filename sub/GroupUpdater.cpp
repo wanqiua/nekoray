@@ -12,6 +12,7 @@
 #include <QThread>
 #include <QUrlQuery>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSet>
 
 #ifndef NKR_NO_YAML
@@ -63,7 +64,8 @@ namespace NekoGui_sub {
             return;
         }
 
-        if (!ParseLink(str.trimmed())) Reject(QObject::tr("Unrecognized or invalid node"));
+        QString error;
+        if (!ParseLink(str.trimmed(), &error)) Reject(error.isEmpty() ? QObject::tr("Unrecognized or invalid node") : error);
     }
 
     void RawUpdater::Reject(const QString &reason) {
@@ -73,15 +75,17 @@ namespace NekoGui_sub {
 
     bool RawUpdater::AddParsedProfile(const std::shared_ptr<NekoGui::ProxyEntity> &profile) {
         if (!profile || !profile->bean || profile->bean->version == -114514) return false;
+        const bool hoppingPort = profile->type == "hysteria2" && profile->bean->serverPort == 0 &&
+                                 !profile->QUICBean()->hopPort.trimmed().isEmpty() && profile->QUICBean()->Validate().isEmpty();
         if (profile->type != "custom" && profile->type != "chain" &&
-            (profile->bean->serverAddress.trimmed().isEmpty() || profile->bean->serverPort <= 0 ||
+            (profile->bean->serverAddress.trimmed().isEmpty() || (profile->bean->serverPort <= 0 && !hoppingPort) ||
              profile->bean->serverPort > 65535)) return false;
         if (!stage_only && !NekoGui::profileManager->AddProfile(profile, gid_add_to)) return false;
         updated_order.append(profile);
         return true;
     }
 
-    bool RawUpdater::ParseLink(const QString &str) {
+    bool RawUpdater::ParseLink(const QString &str, QString *error) {
         std::shared_ptr<NekoGui::ProxyEntity> ent;
         bool needFix = true;
 
@@ -92,6 +96,18 @@ namespace NekoGui_sub {
             if (!link.isValid()) return false;
             ent = NekoGui::ProfileManager::NewProxyEntity(link.host());
             if (ent->bean->version == -114514) return false;
+            if (ent->type == "anytls") {
+                if (!ent->AnyTLSBean()->TryParseLink(str, error)) return false;
+                return AddParsedProfile(ent);
+            }
+            if (ent->type == "snell") {
+                if (!ent->SnellBean()->TryParseLink(str, error)) return false;
+                return AddParsedProfile(ent);
+            }
+            if (ent->type == "hysteria2") {
+                if (!ent->QUICBean()->TryParseLink(str, error)) return false;
+                return AddParsedProfile(ent);
+            }
             auto j = DecodeB64IfValid(link.fragment().toUtf8(), QByteArray::Base64UrlEncoding);
             if (j.isEmpty()) return false;
             QJsonParseError error;
@@ -165,7 +181,7 @@ namespace NekoGui_sub {
         if (str.startsWith("hysteria2://") || str.startsWith("hy2://")) {
             needFix = false;
             ent = NekoGui::ProfileManager::NewProxyEntity("hysteria2");
-            auto ok = ent->QUICBean()->TryParseLink(str);
+            auto ok = ent->QUICBean()->TryParseLink(str, error);
             if (!ok) return false;
         }
 
@@ -175,6 +191,17 @@ namespace NekoGui_sub {
             ent = NekoGui::ProfileManager::NewProxyEntity("tuic");
             auto ok = ent->QUICBean()->TryParseLink(str);
             if (!ok) return false;
+        }
+
+        if (str.startsWith("anytls://", Qt::CaseInsensitive)) {
+            needFix = false;
+            ent = NekoGui::ProfileManager::NewProxyEntity("anytls");
+            if (!ent->AnyTLSBean()->TryParseLink(str, error)) return false;
+        }
+        if (str.startsWith("snell://", Qt::CaseInsensitive)) {
+            needFix = false;
+            ent = NekoGui::ProfileManager::NewProxyEntity("snell");
+            if (!ent->SnellBean()->TryParseLink(str, error)) return false;
         }
 
         if (ent == nullptr) return false;
@@ -190,7 +217,7 @@ namespace NekoGui_sub {
 
     QString Node2QString(const YAML::Node &n, const QString &def = "") {
         try {
-            return n.as<std::string>().c_str();
+            return QString::fromStdString(n.as<std::string>());
         } catch (const YAML::Exception &ex) {
             qDebug() << ex.what();
             return def;
@@ -202,7 +229,7 @@ namespace NekoGui_sub {
             if (n.IsSequence()) {
                 QStringList list;
                 for (auto item: n) {
-                    list << item.as<std::string>().c_str();
+                    list << QString::fromStdString(item.as<std::string>());
                 }
                 return list;
             } else {
@@ -280,6 +307,64 @@ namespace NekoGui_sub {
                 ent->bean->name = Node2QString(proxy["name"]);
                 ent->bean->serverAddress = Node2QString(proxy["server"]);
                 ent->bean->serverPort = Node2Int(proxy["port"]);
+
+                // New protocol adapters reject fields they cannot preserve.
+                // Silently dropping a TLS or network option can turn a valid
+                // subscription entry into a different, misleading profile.
+                if (type == "anytls" || type == "snell" || type == "hysteria2") {
+                    QSet<QString> fields{"name", "type", "server", "port", "udp"};
+                    if (type == "anytls") fields.unite(QSet<QString>{"password", "sni", "servername", "skip-cert-verify",
+                        "alpn", "ca-str", "client-fingerprint", "idle-session-check-interval", "idle-session-timeout",
+                        "min-idle-session", "client-metadata", "tfo"});
+                    else if (type == "snell") fields.unite(QSet<QString>{"version", "psk", "userkey", "reuse", "network", "obfs-opts", "mode"});
+                    else fields.unite(QSet<QString>{"password", "ports", "server-ports", "sni", "skip-cert-verify", "alpn", "ca-str",
+                        "obfs", "obfs-password", "up", "down", "bbr-profile", "gecko-min-packet-size", "gecko-max-packet-size",
+                        "disable-chrome-parrot", "hop-interval", "hop-interval-min", "hop-interval-max"});
+                    bool unsupported = false;
+                    QSet<QString> seenFields;
+                    for (const auto &field : proxy) {
+                        const auto key = Node2QString(field.first);
+                        if (seenFields.contains(key)) {
+                            Reject(QObject::tr("%1 订阅参数重复：%2").arg(ent->bean->DisplayType(), key));
+                            unsupported = true;
+                            break;
+                        }
+                        seenFields.insert(key);
+                        if (!fields.contains(key)) {
+                            Reject(QObject::tr("%1 订阅参数尚未适配：%2").arg(ent->bean->DisplayType(), key));
+                            unsupported = true;
+                            break;
+                        }
+                    }
+                    if (unsupported) continue;
+                    const QSet<QString> structured = type == "anytls" ? QSet<QString>{"alpn"}
+                                                     : type == "snell" ? QSet<QString>{"obfs-opts"}
+                                                                       : QSet<QString>{"alpn", "server-ports"};
+                    for (const auto &field : proxy) {
+                        const auto key = Node2QString(field.first);
+                        if (!structured.contains(key) && !field.second.IsScalar()) {
+                            Reject(QObject::tr("%1 订阅参数格式无效：%2").arg(ent->bean->DisplayType(), key));
+                            unsupported = true;
+                            break;
+                        }
+                    }
+                    if (unsupported) continue;
+                    if (proxy["port"].IsDefined()) {
+                        bool valid = false;
+                        const int port = Node2QString(proxy["port"]).toInt(&valid);
+                        if (!valid) {
+                            Reject(QObject::tr("%1 端口必须是整数").arg(ent->bean->DisplayType()));
+                            continue;
+                        }
+                        ent->bean->serverPort = port;
+                    }
+                    if ((type == "anytls" || type == "hysteria2") && proxy["alpn"].IsDefined()) {
+                        const auto alpn = proxy["alpn"];
+                        bool valid = alpn.IsSequence();
+                        if (valid) for (const auto &protocol : alpn) valid &= protocol.IsScalar();
+                        if (!valid) { Reject(QObject::tr("%1 ALPN 必须是协议名称列表").arg(ent->bean->DisplayType())); continue; }
+                    }
+                }
 
                 if (type_clash == "ss") {
                     auto bean = ent->ShadowSocksBean();
@@ -455,6 +540,69 @@ namespace NekoGui_sub {
                             break;
                         }
                     }
+                } else if (type == "anytls") {
+                    auto bean = ent->AnyTLSBean();
+                    bean->password = Node2QString(proxy["password"]);
+                    bean->sni = Node2QString(NodeChild(proxy, {"sni", "servername"}));
+                    if (proxy["sni"].IsDefined() && proxy["servername"].IsDefined() &&
+                        Node2QString(proxy["sni"]) != Node2QString(proxy["servername"])) {
+                        Reject(QObject::tr("AnyTLS 订阅的 sni 与 servername 冲突"));
+                        continue;
+                    }
+                    bean->allowInsecure = proxy["skip-cert-verify"].IsDefined() && proxy["skip-cert-verify"].as<bool>();
+                    bean->alpn = Node2QStringList(proxy["alpn"]).join(",");
+                    bean->caText = Node2QString(proxy["ca-str"]);
+                    bean->utlsFingerprint = Node2QString(proxy["client-fingerprint"]);
+                    auto duration = [&](const char *key) {
+                        auto text = Node2QString(proxy[key]);
+                        bool numeric = false;
+                        text.toDouble(&numeric);
+                        return numeric ? text + "s" : text;
+                    };
+                    bean->idleSessionCheckInterval = duration("idle-session-check-interval");
+                    bean->idleSessionTimeout = duration("idle-session-timeout");
+                    bean->minIdleSession = proxy["min-idle-session"].IsDefined() ? proxy["min-idle-session"].as<int>() : 0;
+                    bean->clientMetadata = Node2QString(proxy["client-metadata"]);
+                    if ((proxy["tfo"].IsDefined() && proxy["tfo"].as<bool>()) ||
+                        (proxy["udp"].IsDefined() && !proxy["udp"].as<bool>())) {
+                        Reject(QObject::tr("AnyTLS 暂不支持订阅中的 TCP Fast Open 或禁用 UDP 设置"));
+                        continue;
+                    }
+                    const auto invalid = bean->Validate();
+                    if (!invalid.isEmpty()) { Reject(invalid); continue; }
+                } else if (type == "snell") {
+                    auto bean = ent->SnellBean();
+                    if (!proxy["version"].IsDefined()) {
+                        Reject(QObject::tr("Snell 订阅需明确指定 version 为 4 或 6"));
+                        continue;
+                    }
+                    bean->snellVersion = proxy["version"].as<int>();
+                    bean->psk = Node2QString(proxy["psk"]);
+                    bean->userkey = Node2QString(proxy["userkey"]);
+                    bean->reuse = proxy["reuse"].IsDefined() && proxy["reuse"].as<bool>();
+                    bean->network = Node2QString(proxy["network"]);
+                    if (proxy["udp"].IsDefined()) {
+                        const bool udp = proxy["udp"].as<bool>();
+                        if ((udp && bean->network == "tcp") || (!udp && bean->network == "udp")) {
+                            Reject(QObject::tr("Snell 订阅的 network 与 udp 设置冲突"));
+                            continue;
+                        }
+                        if (!udp) bean->network = "tcp";
+                    }
+                    const auto obfs = proxy["obfs-opts"];
+                    if (obfs.IsDefined()) {
+                        bool valid = obfs.IsMap();
+                        if (valid) for (const auto &field : obfs) {
+                            const auto key = Node2QString(field.first);
+                            valid &= (key == "mode" || key == "host") && field.second.IsScalar();
+                        }
+                        if (!valid) { Reject(QObject::tr("Snell 混淆设置仅支持 mode 和 host")); continue; }
+                        bean->obfsMode = Node2QString(obfs["mode"]);
+                        bean->obfsHost = Node2QString(obfs["host"]);
+                    }
+                    bean->mode = Node2QString(proxy["mode"]);
+                    const auto invalid = bean->Validate();
+                    if (!invalid.isEmpty()) { Reject(invalid); continue; }
                 } else if (type == "hysteria") {
                     auto bean = ent->QUICBean();
 
@@ -490,16 +638,59 @@ namespace NekoGui_sub {
                     auto bean = ent->QUICBean();
 
                     bean->hopPort = Node2QString(proxy["ports"]);
+                    if (proxy["server-ports"].IsDefined()) {
+                        const auto ports = proxy["server-ports"];
+                        bool valid = ports.IsSequence() && !proxy["ports"].IsDefined();
+                        if (valid) for (const auto &port : ports) valid &= port.IsScalar();
+                        if (!valid) { Reject(QObject::tr("Hysteria2 server-ports 需为端口列表，且不能与 ports 重复")); continue; }
+                        bean->hopPort = Node2QStringList(ports).join(",");
+                    }
 
-                    bean->allowInsecure = Node2Bool(proxy["skip-cert-verify"]);
+                    bean->allowInsecure = proxy["skip-cert-verify"].IsDefined() && proxy["skip-cert-verify"].as<bool>();
                     bean->caText = Node2QString(proxy["ca-str"]);
                     bean->sni = Node2QString(proxy["sni"]);
+                    bean->alpn = Node2QStringList(proxy["alpn"]).join(",");
 
+                    bean->obfsType = Node2QString(proxy["obfs"]);
                     bean->obfsPassword = Node2QString(proxy["obfs-password"]);
                     bean->password = Node2QString(proxy["password"]);
 
-                    bean->uploadMbps = Node2QString(proxy["up"]).split(" ")[0].toInt();
-                    bean->downloadMbps = Node2QString(proxy["down"]).split(" ")[0].toInt();
+                    auto bandwidth = [&](const char *key, int *result) {
+                        if (!proxy[key].IsDefined()) return true;
+                        static const QRegularExpression pattern("^([0-9]+)(?:\\s*Mbps)?$");
+                        const auto match = pattern.match(Node2QString(proxy[key]).trimmed());
+                        bool valid = false;
+                        const auto value = match.captured(1).toInt(&valid);
+                        if (!match.hasMatch() || !valid) return false;
+                        *result = value;
+                        return true;
+                    };
+                    if (!bandwidth("up", &bean->uploadMbps) || !bandwidth("down", &bean->downloadMbps)) {
+                        Reject(QObject::tr("Hysteria2 带宽必须是非负整数 Mbps，例如 100 或 100 Mbps；0 表示使用 BBR"));
+                        continue;
+                    }
+                    bean->bbrProfile = Node2QString(proxy["bbr-profile"], bean->bbrProfile);
+                    if (proxy["gecko-min-packet-size"].IsDefined()) bean->geckoMinPacketSize = proxy["gecko-min-packet-size"].as<int>();
+                    if (proxy["gecko-max-packet-size"].IsDefined()) bean->geckoMaxPacketSize = proxy["gecko-max-packet-size"].as<int>();
+                    bean->disableChromeParrot = proxy["disable-chrome-parrot"].IsDefined() && proxy["disable-chrome-parrot"].as<bool>();
+                    if (proxy["hop-interval"].IsDefined() && proxy["hop-interval-min"].IsDefined()) {
+                        Reject(QObject::tr("Hysteria2 跳端口最小间隔不能重复指定"));
+                        continue;
+                    }
+                    auto duration = [&](const YAML::Node &value) {
+                        auto text = Node2QString(value);
+                        bool numeric = false;
+                        text.toDouble(&numeric);
+                        return numeric ? text + "s" : text;
+                    };
+                    bean->hopIntervalMin = duration(NodeChild(proxy, {"hop-interval-min", "hop-interval"}));
+                    bean->hopIntervalMax = duration(proxy["hop-interval-max"]);
+                    if (proxy["udp"].IsDefined() && !proxy["udp"].as<bool>()) {
+                        Reject(QObject::tr("Hysteria2 暂不支持订阅中的禁用 UDP 设置"));
+                        continue;
+                    }
+                    const auto invalid = bean->Validate();
+                    if (!invalid.isEmpty()) { Reject(invalid); continue; }
                 } else if (type == "tuic") {
                     auto bean = ent->QUICBean();
 
@@ -554,6 +745,11 @@ namespace NekoGui_sub {
         }
         if (!parsed.parse_error.isEmpty()) {
             result.error = parsed.parse_error;
+            return result;
+        }
+        if (parsed.rejected_count > 0) {
+            result.error = QObject::tr("订阅中有 %1 项无法完整导入，已保留原分组：%2")
+                               .arg(parsed.rejected_count).arg(parsed.rejection_reasons.join("；"));
             return result;
         }
         if (parsed.updated_order.isEmpty()) {

@@ -41,6 +41,11 @@ namespace NekoGui_fmt {
     int QUICBean::NeedExternal(bool isFirstProfile, int targetCore, const NekoGui::DataStore *runtimeSettings) {
         if (runtimeSettings == nullptr) runtimeSettings = NekoGui::dataStore;
         if (targetCore < 0) targetCore = NekoGui::coreType;
+        if (proxy_type == proxy_Hysteria2) {
+            if (targetCore == NekoGui::CoreType::SING_BOX && !forceExternal) return 0;
+            if (!Hysteria2ExternalCompatibilityError().isEmpty()) return -1;
+            return isFirstProfile && !(runtimeSettings != nullptr && runtimeSettings->spmode_vpn) ? 2 : 1;
+        }
         auto hysteriaCore = [=] {
             if (isFirstProfile) {
                 if (runtimeSettings->spmode_vpn && hyProtocol != hysteria_protocol_facktcp && hopPort.trimmed().isEmpty()) {
@@ -184,13 +189,28 @@ namespace NekoGui_fmt {
 
             return result;
         } else if (proxy_type == proxy_Hysteria2) {
-            ExternalBuildResult result{runtimeSettings->extraCore->Get("hysteria2")};
+            ExternalBuildResult result;
+            result.error = Validate();
+            if (!result.error.isEmpty()) return result;
+            result.error = Hysteria2ExternalCompatibilityError();
+            if (!result.error.isEmpty()) return result;
+            if (runtimeSettings == nullptr) {
+                result.error = QObject::tr("Hysteria2 外置核心缺少运行设置");
+                return result;
+            }
+            result.program = runtimeSettings->extraCore->Get("hysteria2");
 
             QJsonObject config;
 
             auto server = serverAddress;
-            if (!hopPort.trimmed().isEmpty()) {
-                server = WrapIPV6Host(server) + ":" + hopPort;
+            const auto ports = Hysteria2ServerPorts();
+            if (!ports.isEmpty()) {
+                QStringList externalPorts;
+                for (const auto &range : ports) {
+                    const auto bounds = range.split(':');
+                    externalPorts.append(bounds[0] == bounds[1] ? bounds[0] : bounds[0] + "-" + bounds[1]);
+                }
+                server = WrapIPV6Host(server) + ":" + externalPorts.join(',');
             } else {
                 server = WrapIPV6Host(server) + ":" + Int2String(serverPort);
             }
@@ -198,7 +218,7 @@ namespace NekoGui_fmt {
             QJsonObject transport;
             transport["type"] = "udp";
             transport["udp"] = QJsonObject{
-                {"hopInterval", QString::number(hopInterval) + "s"},
+                {"hopInterval", Hysteria2HopInterval().isEmpty() ? "30s" : Hysteria2HopInterval()},
             };
             config["transport"] = transport;
 
@@ -223,7 +243,7 @@ namespace NekoGui_fmt {
             config["fastOpen"] = true;
             config["lazy"] = true;
 
-            if (!obfsPassword.isEmpty()) {
+            if (!Hysteria2ObfsType().isEmpty()) {
                 QJsonObject obfs;
                 obfs["type"] = "salamander";
                 obfs["salamander"] = QJsonObject{

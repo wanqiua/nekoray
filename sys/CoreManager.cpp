@@ -112,12 +112,12 @@ void CoreManager::StartProcess(const std::shared_ptr<Instance> &instance) {
         const bool expected = instance->expectedExit.load();
         instance->alive = false;
         instance->ready = false;
-        ++instance->generation;
+        const auto exitedGeneration = instance->generation.fetch_add(1);
         if (!guard) return;
-        runOnUiThread([guard, instance, expected] {
+        runOnUiThread([guard, instance, expected, exitedGeneration] {
             if (!guard) return;
             NekoGui::dataStore->core_running = guard->Ready(0) || guard->Ready(1);
-            if (!guard->shuttingDown && !expected && guard->onExited) guard->onExited(instance->core);
+            if (!guard->shuttingDown && !expected && guard->onExited) guard->onExited(instance->core, exitedGeneration);
         }, guard);
     });
     QStringList arguments{instance->core == NekoGui::CoreType::SING_BOX ? "nekobox" : "nekoray",

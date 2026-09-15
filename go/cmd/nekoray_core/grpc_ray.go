@@ -54,6 +54,9 @@ func (s *server) Stop(ctx context.Context, in *gen.EmptyReq) (*gen.ErrorResp, er
 	if instance != nil {
 		if err := instance.Close(); err != nil {
 			out.Error = err.Error()
+			// Close caches its result. Preserve ownership and keep Start
+			// blocked until cleanup is confirmed or this daemon exits.
+			return out, nil
 		}
 		instance = nil
 	}

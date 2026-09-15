@@ -1,3 +1,11 @@
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <wininet.h>
+#endif
+
 #include <QtTest>
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -36,6 +44,7 @@
 #include "sub/GroupUpdater.hpp"
 #include "tests/subscription_metadata_test.hpp"
 #include "tests/profile_editor_core_test.hpp"
+#include "tests/hysteria2_editor_test.hpp"
 
 extern std::shared_ptr<SpeedtestBatch> speedtest_batch;
 
@@ -49,6 +58,8 @@ struct ProbeCount {
 class FixtureServer : public QTcpServer {
 public:
     int requests = 0;
+    QByteArray requestMarker;
+    int matchingRequests = 0;
     int delay;
     QByteArray body;
     int status;
@@ -75,16 +86,23 @@ public:
                             continue;
                         }
                         ++requests;
+                        if (!requestMarker.isEmpty() && request.toLower().contains(requestMarker.toLower())) ++matchingRequests;
                         if (count != nullptr) {
                             socket->setProperty("counted", true);
                             count->peak = qMax(count->peak, ++count->active);
                         }
                         if (delay < 0) return; // Stall until the caller cancels.
                         const QPointer<QTcpSocket> guarded(socket);
-                        QTimer::singleShot(delay, socket, [this, guarded] {
+                        QTimer::singleShot(delay, socket, [this, guarded, count] {
                             if (!guarded || guarded->state() != QAbstractSocket::ConnectedState) return;
                             guarded->write("HTTP/1.1 " + QByteArray::number(status) + " Fixture\r\nContent-Length: " +
                                            QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                            // The request has a response now; a later TCP-close
+                            // event must not inflate the active request count.
+                            if (count != nullptr && guarded->property("counted").toBool()) {
+                                guarded->setProperty("counted", false);
+                                --count->active;
+                            }
                             guarded->disconnectFromHost();
                         });
                     }
@@ -214,7 +232,10 @@ private slots:
     }
 
     void cleanup() {
+        const bool systemAcceptance = qEnvironmentVariable("NEKORAY_SYSTEM_ACCEPTANCE") == "1";
+        if (systemAcceptance) qInfo("System acceptance cleanup: stopping the current node");
         QVERIFY2(stopActiveRuntime(), "test runtime did not stop before removing fixture profiles");
+        if (systemAcceptance) qInfo("System acceptance cleanup: removing synthetic profiles");
         window->show_group(baseGroup);
         const auto groups = NekoGui::profileManager->groupsTabOrder;
         for (int id: groups) {
@@ -224,6 +245,7 @@ private slots:
         for (const auto &profile: profiles) NekoGui::profileManager->DeleteProfile(profile->id);
         window->refresh_groups();
         NekoGui::dataStore->Save();
+        if (systemAcceptance) qInfo("System acceptance cleanup: complete");
     }
 
     void testResultProvenance() {
@@ -418,14 +440,33 @@ private slots:
         QVERIFY(config->outboundStats.isEmpty());
     }
 
+    void defaultCorePreferenceOnlySavesForNextConnection_data() {
+        QTest::addColumn<QString>("externalCoreMap");
+        QTest::addColumn<QString>("muxProtocol");
+        QTest::addColumn<bool>("changeInbound");
+        QTest::newRow("empty-map-and-default-mux") << QString("{}") << QString() << false;
+        QTest::newRow("blank-map-and-preserved-mux") << QString() << QString("smux") << false;
+        QTest::newRow("formatted-map") << QString("{\n  \"custom-helper\": \"C:/fixture/helper.exe\"\n}")
+                                        << QString("yamux") << false;
+        QTest::newRow("changed-inbound-still-prompts") << QString("{}") << QString("smux") << true;
+    }
+
     void defaultCorePreferenceOnlySavesForNextConnection() {
+        QFETCH(QString, externalCoreMap);
+        QFETCH(QString, muxProtocol);
+        QFETCH(bool, changeInbound);
         auto data = NekoGui::dataStore;
         QScopedValueRollback<int> restorePreference(data->preferred_core);
+        QScopedValueRollback<QString> restoreExternalCores(data->extraCore->core_map, externalCoreMap);
+        QScopedValueRollback<QString> restoreMuxProtocol(data->mux_protocol, muxProtocol);
+        QScopedValueRollback<QString> restoreInbound(data->inbound_address);
         const int originalCore = NekoGui::coreType;
         const int nextCore = NekoGui::PreferredCore() == NekoGui::CoreType::V2RAY
                                  ? NekoGui::CoreType::SING_BOX : NekoGui::CoreType::V2RAY;
         const auto sourceFile = data->fn;
         const auto priorSettings = data->ToJson({"preferred_core"});
+        auto expectedSettings = priorSettings;
+        data->Save();
         FixtureServer server;
         auto profile = addNode(server.serverPort());
         window->neko_start(profile->id);
@@ -435,30 +476,46 @@ private slots:
         const auto xrayGeneration = window->core_manager->Generation(NekoGui::CoreType::V2RAY);
         const auto boxGeneration = window->core_manager->Generation(NekoGui::CoreType::SING_BOX);
         const auto intentSequence = window->core_intent_sequence.load();
-        int unexpectedPrompts = 0;
-        QTimer dismissUnexpectedPrompt;
-        connect(&dismissUnexpectedPrompt, &QTimer::timeout, window, [&] {
+        QStringList shownPrompts;
+        QTimer dismissPrompt;
+        connect(&dismissPrompt, &QTimer::timeout, window, [&] {
             for (auto widget: QApplication::topLevelWidgets()) {
                 auto message = qobject_cast<QMessageBox *>(widget);
                 if (message == nullptr || !message->isVisible()) continue;
-                ++unexpectedPrompts;
+                shownPrompts.append(message->text());
                 message->done(QMessageBox::No);
             }
         });
-        dismissUnexpectedPrompt.start(10);
+        dismissPrompt.start(10);
         DialogBasicSettings dialog(window);
         dialog.show();
         child<QRadioButton>(&dialog, nextCore == NekoGui::CoreType::SING_BOX
                                           ? "switch_core_sing_box" : "switch_core_v2ray")->click();
+        if (changeInbound) {
+            child<QLineEdit>(&dialog, "inbound_address")->setText("127.0.0.2");
+            expectedSettings.insert("inbound_address", "127.0.0.2");
+        }
         dialog.accept();
         QCOMPARE(dialog.result(), int(QDialog::Accepted));
         QTRY_COMPARE_WITH_TIMEOUT(QJsonDocument::fromJson(ReadFile(data->fn)).object()
                                       .value("preferred_core").toInt(-1), nextCore, 3000);
-        QCOMPARE(unexpectedPrompts, 0);
+        const auto savedSettings = data->ToJson({"preferred_core"});
+        QJsonObject unexpectedChanges;
+        for (auto it = expectedSettings.begin(); it != expectedSettings.end(); ++it) {
+            if (savedSettings.value(it.key()) != it.value()) {
+                unexpectedChanges.insert(it.key(), QJsonObject{{"expected", it.value()},
+                                                               {"actual", savedSettings.value(it.key())}});
+            }
+        }
+        QVERIFY2(unexpectedChanges.isEmpty(), qPrintable(QJsonDocument(unexpectedChanges).toJson(QJsonDocument::Compact)));
+        QCOMPARE(shownPrompts.size(), changeInbound ? 1 : 0);
+        if (changeInbound) {
+            QCOMPARE(shownPrompts.first(), QCoreApplication::translate("MainWindow", "Settings changed, restart proxy?"));
+        }
         QCOMPARE(NekoGui::PreferredCore(), nextCore);
         QCOMPARE(NekoGui::coreType, originalCore);
         QCOMPARE(data->fn, sourceFile);
-        QCOMPARE(data->ToJson({"preferred_core"}), priorSettings);
+        QCOMPARE(savedSettings, expectedSettings);
         QCOMPARE(data->started_id, profile->id);
         QVERIFY(window->core_session == activeSession);
         QVERIFY(!window->core_switch_busy && !window->pending_core_intent);
@@ -642,7 +699,37 @@ private slots:
         QCoreApplication::removeTranslator(&translator);
     }
 
-    #include "dynamic_core_runtime_test.hpp"
+    void manualCoreSwitchAndSameConfigurationNoop();
+    void bulkPreferenceKeepsConnectionUntilExplicitClick();
+    void mixedCoreBatchKeepsOneBudgetAndSurvivesSwitch();
+    void targetStartFailureRestoresSavedConfiguration();
+    void invalidTargetPreflightKeepsCurrentConnection();
+    void latestSelectionWinsAndDeletedPreparationCannotStart();
+    void ownedCoreCrashRestoresSavedSession();
+    void exitPreparationRejectsNewTests();
+    void socksUdpFixtureSanity();
+    void systemProxyRuntimeAcceptance();
+    void tunSystemRuntimeAcceptance();
+    void newProtocolsImportNativeAndFullLinks();
+    void newProtocolsRejectInvalidSubscription();
+    void newProtocolsResolveCoreAndEditorChoices();
+    void anyTlsEditorDraftAndAdvancedSave();
+    void snellEditorVersionDraftsAndSave();
+    void newProtocolsSubscriptionKeepsMetadata();
+    void anyTlsResolveDomainPreservesSni();
+    void snellUrlBatchRespectsNetwork();
+    void newProtocolsClashImportPreservesOptions();
+    void newProtocolPeerRuntimeAcceptance();
+
+    void hysteria2AdvancedRoundTrip() {
+        Hysteria2EditorRegression::AdvancedRoundTrip(window);
+    }
+    void hysteria2CancelAndLegacyEditors() {
+        Hysteria2EditorRegression::CancelAndLegacyEditors(window);
+    }
+    void hysteria2InvalidAdvancedOptionsCannotSave() {
+        Hysteria2EditorRegression::InvalidAdvancedOptionsCannotSave(window);
+    }
 
     void cleanupTestCase() {
         QVERIFY2(stopActiveRuntime(), "test runtime did not stop before daemon shutdown");
@@ -664,6 +751,11 @@ private slots:
         QVERIFY(QDir::setCurrent(previousDirectory));
     }
 };
+
+#include "dynamic_core_runtime_test.hpp"
+#include "system_mode_acceptance_test.hpp"
+#include "new_protocol_regression_test.hpp"
+#include "protocol_gui_runtime_test.hpp"
 
 int main(int argc, char **argv) {
     QApplication app(argc, argv);

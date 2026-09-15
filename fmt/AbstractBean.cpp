@@ -62,6 +62,10 @@ namespace NekoGui_fmt {
                 // replace serverAddress
                 serverAddress = addr.first().toString();
 
+                if (auto anytls = dynamic_cast<AnyTLSBean *>(this); anytls && anytls->sni.isEmpty()) {
+                    anytls->sni = domain;
+                }
+
                 // replace ws tls
                 if (stream != nullptr) {
                     if (stream->security == "tls" && stream->sni.isEmpty()) {

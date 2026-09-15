@@ -18,6 +18,10 @@ namespace NekoGui_fmt {
 
     class QUICBean;
 
+    class AnyTLSBean;
+
+    class SnellBean;
+
     class CustomBean;
 
     class ChainBean;
@@ -88,6 +92,14 @@ namespace NekoGui {
 
         [[nodiscard]] NekoGui_fmt::CustomBean *CustomBean() const {
             return (NekoGui_fmt::CustomBean *) bean.get();
+        };
+
+        [[nodiscard]] NekoGui_fmt::AnyTLSBean *AnyTLSBean() const {
+            return (NekoGui_fmt::AnyTLSBean *) bean.get();
+        };
+
+        [[nodiscard]] NekoGui_fmt::SnellBean *SnellBean() const {
+            return (NekoGui_fmt::SnellBean *) bean.get();
         };
 
     private:

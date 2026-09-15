@@ -26,6 +26,7 @@ private:
     struct {
         QJsonObject extraCore;
         QString custom_inbound;
+        QString muxProtocolSelection;
         bool needRestart = false;
     } CACHE;
 

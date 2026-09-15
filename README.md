@@ -4,7 +4,11 @@
 
 本分支基于 **3.26** 保留双内核，使用 **Matsuri Xray v1.8.4 兼容版 / sing-box v1.14.0**。Xray 保留 `rc4-md5` 和 `allowInsecure` 支持。参见 [兼容说明](docs/Core_Upgrade.md) 和 [内核构建教程](docs/Build_Core.md)。
 
-批量 URL 测试的并发与结果回写、分组右键菜单和链接导入窗口已完成修改。本地 Windows x64 便携包及对应源码包输出到 `deployment/packages/`，使用方法见[便携版说明](docs/Portable_Windows.md)，自行构建见 [Windows 构建教程](docs/Build_Windows.md)。
+已支持逐节点的“自动 / Xray / sing-box”选择，检查完整配置的兼容性，并在订阅更新后保留可匹配节点的选核偏好。混合内核批量 URL 测试共用总并发预算，结果记录实际内核和配置；新增 AnyTLS、Snell 4/6 和 Hysteria2 高级选项。功能及实测范围见[实现说明](docs/Dynamic_Core_Implementation.md)。
+
+Windows 11 的系统代理、TUN 切核、FakeIP 及故障恢复验收已通过，2026-09-15 完成了拒绝不兼容 FakeIP 设置后保持连接的补充复验。旧配置升级、保存重启、原版回退启动及便携包 TLS 验收也已通过。详见[系统验收](tests/acceptance/system-host.md)、[新协议验收](tests/acceptance/new-protocols.md)和[包验收](tests/acceptance/package_acceptance.md)。
+
+分组右键菜单和链接导入窗口也已调整。本地 Windows x64 便携包及对应源码包输出到 `deployment/packages/`，使用方法见[便携版说明](docs/Portable_Windows.md)，自行构建见 [Windows 构建教程](docs/Build_Windows.md)。
 
 Qt based cross-platform GUI proxy configuration manager (backend: v2ray / sing-box)
 
@@ -61,6 +65,8 @@ GUI 和内核构建方法见 [Windows 构建教程](docs/Build_Windows.md) 与 [
 - VMess
 - VLESS
 - Trojan
+- AnyTLS ( sing-box )
+- Snell 4 / 6 ( sing-box )
 - TUIC ( sing-box )
 - NaïveProxy ( Custom Core )
 - Hysteria ( Custom Core or sing-box )

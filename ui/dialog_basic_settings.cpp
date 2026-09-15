@@ -170,15 +170,24 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     ui->core_v2ray_asset->setText(NekoGui::dataStore->v2ray_asset_dir);
     //
     CACHE.extraCore = QString2QJsonObject(NekoGui::dataStore->extraCore->core_map);
-    if (!CACHE.extraCore.contains("naive")) CACHE.extraCore.insert("naive", "");
-    if (!CACHE.extraCore.contains("hysteria")) CACHE.extraCore.insert("hysteria", "");
-    if (!CACHE.extraCore.contains("hysteria2")) CACHE.extraCore.insert("hysteria2", "");
-    if (!CACHE.extraCore.contains("tuic")) CACHE.extraCore.insert("tuic", "");
+    auto extraCoreNames = CACHE.extraCore.keys();
+    for (const auto &name: {"naive", "hysteria", "hysteria2", "tuic"}) {
+        if (!extraCoreNames.contains(name)) extraCoreNames.append(name);
+    }
+    extraCoreNames.sort();
     //
     auto extra_core_layout = ui->extra_core_box_scrollAreaWidgetContents->layout();
-    for (const auto &s: CACHE.extraCore.keys()) {
+    for (const auto &s: extraCoreNames) {
         extra_core_layout->addWidget(new ExtraCoreWidget(&CACHE.extraCore, s));
     }
+    const auto displayedExtraCoreNames = [extra_core_layout] {
+        QStringList names;
+        for (int i = 0; i < extra_core_layout->count(); ++i) {
+            const auto widget = dynamic_cast<ExtraCoreWidget *>(extra_core_layout->itemAt(i)->widget());
+            if (widget != nullptr) names.append(widget->coreName);
+        }
+        return names;
+    };
     //
     connect(ui->core_v2ray_asset, &QLineEdit::textChanged, this, [=] {
         CACHE.needRestart = true;
@@ -197,7 +206,7 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
                                        QLineEdit::Normal, "", &ok)
                      .trimmed();
         if (s.isEmpty() || !ok) return;
-        if (CACHE.extraCore.contains(s)) return;
+        if (displayedExtraCoreNames().contains(s)) return;
         extra_core_layout->addWidget(new ExtraCoreWidget(&CACHE.extraCore, s));
         CACHE.extraCore.insert(s, "");
     });
@@ -205,7 +214,7 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
         bool ok;
         auto s = QInputDialog::getItem(nullptr, tr("Delete"),
                                        tr("Please select the core name."),
-                                       CACHE.extraCore.keys(), 0, false, &ok);
+                                       displayedExtraCoreNames(), 0, false, &ok);
         if (s.isEmpty() || !ok) return;
         for (int i = 0; i < extra_core_layout->count(); i++) {
             auto item = extra_core_layout->itemAt(i);
@@ -228,6 +237,7 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     // Mux
     D_LOAD_INT(mux_concurrency)
     D_LOAD_COMBO_STRING(mux_protocol)
+    CACHE.muxProtocolSelection = ui->mux_protocol->currentText();
     D_LOAD_BOOL(mux_padding)
     D_LOAD_BOOL(mux_default_on)
 
@@ -247,6 +257,7 @@ DialogBasicSettings::~DialogBasicSettings() {
 void DialogBasicSettings::accept() {
     const auto priorSettings = NekoGui::dataStore->ToJson({"preferred_core"});
     const auto priorPreferredCore = NekoGui::dataStore->preferred_core;
+    const auto priorExternalCores = QString2QJsonObject(NekoGui::dataStore->extraCore->core_map);
     NekoGui::dataStore->preferred_core = ui->switch_core_sing_box->isChecked()
                                             ? NekoGui::CoreType::SING_BOX : NekoGui::CoreType::V2RAY;
     // Common
@@ -308,11 +319,20 @@ void DialogBasicSettings::accept() {
     // Core
 
     NekoGui::dataStore->v2ray_asset_dir = ui->core_v2ray_asset->text();
-    NekoGui::dataStore->extraCore->core_map = QJsonObject2QString(CACHE.extraCore, true);
+    // Built-in rows are display placeholders until edited. Preserve untouched
+    // JSON, including an empty or formatted map, instead of changing settings
+    // while the user only selects a default core.
+    if (priorExternalCores != CACHE.extraCore) {
+        NekoGui::dataStore->extraCore->core_map = QJsonObject2QString(CACHE.extraCore, true);
+    }
 
     // Mux
     D_SAVE_INT(mux_concurrency)
-    D_SAVE_COMBO_STRING(mux_protocol)
+    // Xray hides this control; sing-box can display a default for a legacy
+    // empty value. An untouched selection must keep the original setting.
+    if (ui->mux_protocol->currentText() != CACHE.muxProtocolSelection) {
+        D_SAVE_COMBO_STRING(mux_protocol)
+    }
     D_SAVE_BOOL(mux_padding)
     D_SAVE_BOOL(mux_default_on)
 
@@ -328,6 +348,7 @@ void DialogBasicSettings::accept() {
     }
 
     QStringList str{"UpdateDataStore"};
+    if (priorExternalCores != CACHE.extraCore) str << "VPNChanged";
     if (priorPreferredCore != NekoGui::dataStore->preferred_core &&
         priorSettings == NekoGui::dataStore->ToJson({"preferred_core"})) str << "DefaultCoreOnly";
     if (CACHE.needRestart) str << "NeedRestart";

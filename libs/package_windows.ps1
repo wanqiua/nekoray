@@ -8,11 +8,13 @@ param(
     [string]$CoreDirectory = (Join-Path $PSScriptRoot '../deployment/windows64'),
     [string]$OutputDirectory = (Join-Path $PSScriptRoot '../deployment/packages'),
     [string]$SevenZip = 'C:/Program Files/7-Zip/7z.exe',
+    [switch]$ValidateInputsOnly,
     [ValidatePattern('^[a-zA-Z0-9._-]+$')]
     [string]$PackageName = ('nekoray-3.26-dual-core-windows-x64-' + (Get-Date -Format yyyyMMdd))
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'package_source_inventory.ps1')
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $GuiPath = (Resolve-Path -LiteralPath $GuiPath).Path
 $QtSdk = (Resolve-Path -LiteralPath $QtSdk).Path
@@ -26,13 +28,44 @@ $coreManifest = Get-Content -Raw -LiteralPath (Join-Path $CoreDirectory 'core-ve
 if ($coreManifest.target_os -ne 'windows' -or $coreManifest.target_arch -ne 'amd64') {
     throw 'The core manifest must describe Windows amd64 binaries.'
 }
+if ($coreManifest.gui_base -ne '3.26' -or
+    $coreManifest.cores.nekoray_core.version -ne 'v1.8.4' -or
+    $coreManifest.cores.nekoray_core.source_module -ne 'github.com/MatsuriDayo/Xray-core' -or
+    $coreManifest.cores.nekoray_core.source_revision -ne '01208225ee7e508044cca8eb6776a117bcecd997' -or
+    $coreManifest.cores.nekobox_core.version -ne 'v1.14.0' -or
+    $coreManifest.cores.nekobox_core.source_module -ne 'github.com/sagernet/sing-box') {
+    throw 'Package inputs must retain Matsuri Xray 1.8.4 compatibility and sing-box 1.14.0.'
+}
 foreach ($core in @('nekoray_core', 'nekobox_core')) {
     $actual = (Get-FileHash -LiteralPath (Join-Path $CoreDirectory "$core.exe") -Algorithm SHA256).Hash
     if ($actual -ne $coreManifest.cores.$core.sha256) { throw "Core hash mismatch: $core" }
 }
-foreach ($required in @($windeploy, (Join-Path $CrtDirectory 'vcruntime140.dll'),
-        (Join-Path $NoticesDirectory 'README.txt'))) {
+$requiredInputs = @($windeploy, $GuiPath, $SevenZip, (Join-Path $NoticesDirectory 'README.txt'))
+$requiredInputs += @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll') | ForEach-Object { Join-Path $CrtDirectory $_ }
+$requiredInputs += @('Qt6Core.dll', 'libcrypto-3-x64.dll', 'libssl-3-x64.dll') | ForEach-Object { Join-Path $QtSdk "bin/$_" }
+$requiredInputs += @('geoip.dat', 'geosite.dat', 'geoip.db', 'geosite.db') | ForEach-Object { Join-Path $GeoDataDirectory $_ }
+$packageDocuments = @('Core_Upgrade.md', 'Build_Core.md', 'Build_Windows.md', 'Dynamic_Core_Implementation.md')
+$requiredInputs += @('Portable_Windows.md') + $packageDocuments | ForEach-Object { Join-Path $projectRoot "docs/$_" }
+$requiredInputs += @('nekoray.png', 'nekobox.png', 'qtbase_zh_CN.qm') | ForEach-Object { Join-Path $projectRoot "res/public/$_" }
+$requiredInputs += Join-Path $projectRoot 'LICENSE'
+foreach ($required in $requiredInputs) {
     if (!(Test-Path -LiteralPath $required -PathType Leaf)) { throw "Missing package input: $required" }
+}
+$submoduleRevisions = [ordered]@{}
+foreach ($submodule in @('3rdparty/QHotkey', '3rdparty/qjs')) {
+    $entry = (& git -C $projectRoot ls-files --stage -- $submodule | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $entry -notmatch '^160000 ([0-9a-f]{40}) 0\s') {
+        throw "Cannot identify the pinned submodule: $submodule"
+    }
+    $submoduleRevisions[[IO.Path]::GetFileName($submodule)] = $Matches[1]
+    if (!(Test-Path -LiteralPath (Join-Path $projectRoot "$submodule/CMakeLists.txt") -PathType Leaf)) {
+        throw "Missing submodule source: $submodule"
+    }
+}
+$sourceFiles = @(Get-PackageSourceInventory -ProjectRoot $projectRoot)
+if ($ValidateInputsOnly) {
+    Write-Host "Package inputs, pinned core sources, core hashes and $($sourceFiles.Count) source paths verified. No package or staging directory was created."
+    return
 }
 
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
@@ -80,33 +113,18 @@ foreach ($name in @('nekoray.png', 'nekobox.png', 'qtbase_zh_CN.qm')) {
 }
 Copy-Payload (Join-Path $projectRoot 'LICENSE') 'LICENSE'
 Copy-Payload (Join-Path $projectRoot 'docs/Portable_Windows.md') 'README.md'
-foreach ($name in @('Core_Upgrade.md', 'Build_Core.md', 'Build_Windows.md')) {
+foreach ($name in $packageDocuments) {
     Copy-Payload (Join-Path $projectRoot "docs/$name") "docs/$name"
 }
 Copy-Item -LiteralPath $NoticesDirectory -Destination (Join-Path $portable 'licenses') -Recurse
 "[Paths]`nPrefix=.`nPlugins=.`nTranslations=.`n" | Set-Content -LiteralPath (Join-Path $portable 'qt.conf') -Encoding utf8
 
-# Capture working files, including untracked implementation files and pinned submodules.
-# git archive HEAD would omit all local modifications in this development build.
-$gitFiles = @(& git -C $projectRoot -c core.quotepath=false ls-files --cached --others --exclude-standard)
-if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate the source tree.' }
-$sourceFiles = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-foreach ($relative in $gitFiles) { [void]$sourceFiles.Add($relative) }
-foreach ($submodule in @('3rdparty/QHotkey', '3rdparty/qjs')) {
-    foreach ($file in Get-ChildItem -LiteralPath (Join-Path $projectRoot $submodule) -Recurse -File -Force) {
-        $relative = [IO.Path]::GetRelativePath($projectRoot, $file.FullName).Replace('\', '/')
-        if ($relative -notmatch '(^|/)\.git(/|$)') { [void]$sourceFiles.Add($relative) }
-    }
-}
-foreach ($relative in ($sourceFiles | Sort-Object)) {
-    $inputPath = [IO.Path]::GetFullPath((Join-Path $projectRoot $relative))
-    if (!$inputPath.StartsWith($projectRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Source path escapes the repository: $relative"
-    }
-    if (!(Test-Path -LiteralPath $inputPath -PathType Leaf)) { continue }
-    if ((Get-Item -LiteralPath $inputPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-        throw "Source links require manual review: $relative"
-    }
+# Capture the current source files, including untracked implementation files.
+# Recheck each path when copying so runtime directories and links cannot enter
+# through an ignored-file exception or a changed submodule directory.
+foreach ($relative in $sourceFiles) {
+    $inputPath = Resolve-PackageSourceFile -ProjectRoot $projectRoot -Relative $relative
+    if ($null -eq $inputPath) { continue }
     $target = Join-Path $source $relative
     New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
     Copy-Item -LiteralPath $inputPath -Destination $target
@@ -118,10 +136,7 @@ $sourceInfo = [ordered]@{
     base_revision = $baseRevision
     includes_working_tree_changes = $true
     captured_at_utc = [DateTime]::UtcNow.ToString('o')
-    submodules = @{
-        QHotkey = '52e25acf221e5ac86ce648f6922620fb2d6a7121'
-        qjs = '3fb0770c9ee5ab031a56072520641d4577b694e3'
-    }
+    submodules = $submoduleRevisions
 }
 $sourceInfo | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $source 'BUILD-SOURCE.json') -Encoding utf8
 

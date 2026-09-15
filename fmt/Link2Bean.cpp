@@ -3,6 +3,189 @@
 
 #include <QUrlQuery>
 
+#include <QJsonDocument>
+#include <QRegularExpression>
+#include <QSet>
+
+#include <cmath>
+#include <limits>
+
+namespace {
+    bool hysteria2LinkError(QString *error, const QString &message) {
+        if (error != nullptr) *error = message;
+        return false;
+    }
+
+    bool hysteria2DecodeComponent(const QString &encoded, QString *decoded) {
+        const auto bytes = QByteArray::fromPercentEncoding(encoded.toLatin1());
+        *decoded = QString::fromUtf8(bytes);
+        return decoded->toUtf8() == bytes;
+    }
+
+    bool hysteria2LinkBoolean(const QString &text, bool *value) {
+        if (text == "1" || text == "true") { *value = true; return true; }
+        if (text == "0" || text == "false") { *value = false; return true; }
+        return false;
+    }
+
+    bool hysteria2LinkInteger(const QString &text, qint64 *value) {
+        if (!QRegularExpression("^[0-9]+$").match(text).hasMatch()) return false;
+        bool valid = false;
+        *value = text.toLongLong(&valid);
+        return valid;
+    }
+
+    QString hysteria2QueryKey(const QString &key) {
+        static const QMap<QString, QString> aliases{
+            {"peer", "sni"}, {"server_name", "sni"},
+            {"insecure", "allowInsecure"}, {"allow_insecure", "allowInsecure"}, {"skip-cert-verify", "allowInsecure"},
+            {"obfs", "obfsType"}, {"obfs_type", "obfsType"},
+            {"obfs-password", "obfsPassword"}, {"obfs_password", "obfsPassword"},
+            {"mport", "hopPort"}, {"server_ports", "hopPort"}, {"serverPorts", "hopPort"},
+            {"hop_interval", "hopIntervalMin"}, {"hop_interval_min", "hopIntervalMin"}, {"hop-interval", "hopIntervalMin"}, {"hopInterval", "hopIntervalMin"},
+            {"hop_interval_max", "hopIntervalMax"}, {"hop-interval-max", "hopIntervalMax"},
+            {"bbr_profile", "bbrProfile"}, {"bbr-profile", "bbrProfile"},
+            {"gecko_min_packet_size", "geckoMinPacketSize"}, {"gecko-min-packet-size", "geckoMinPacketSize"}, {"min_packet_size", "geckoMinPacketSize"},
+            {"gecko_max_packet_size", "geckoMaxPacketSize"}, {"gecko-max-packet-size", "geckoMaxPacketSize"}, {"max_packet_size", "geckoMaxPacketSize"},
+            {"disable_chrome_parrot", "disableChromeParrot"}, {"disable-chrome-parrot", "disableChromeParrot"},
+            {"up_mbps", "uploadMbps"}, {"upmbps", "uploadMbps"},
+            {"down_mbps", "downloadMbps"}, {"downmbps", "downloadMbps"},
+            {"ca", "caText"}, {"certificate", "caText"},
+            {"disable_sni", "disableSni"},
+            {"stream_receive_window", "streamReceiveWindow"}, {"connection_receive_window", "connectionReceiveWindow"},
+            {"disable_path_mtu_discovery", "disableMtuDiscovery"},
+        };
+        return aliases.value(key, key);
+    }
+
+    bool hysteria2ShareObject(const QUrl &url, NekoGui_fmt::QUICBean *bean, QString *error) {
+        if (url.host() != "hysteria2" || !url.userInfo().isEmpty() || url.port() != -1 || !url.path().isEmpty() || url.hasQuery()) {
+            return hysteria2LinkError(error, QObject::tr("Hysteria2 完整分享链接格式无效"));
+        }
+        const auto encoded = url.fragment(QUrl::FullyDecoded).toLatin1();
+        if (!QRegularExpression("^[A-Za-z0-9_-]+={0,2}$").match(QString::fromLatin1(encoded)).hasMatch()) {
+            return hysteria2LinkError(error, QObject::tr("Hysteria2 分享内容不是有效的 Base64URL"));
+        }
+        const auto bytes = QByteArray::fromBase64(encoded, QByteArray::Base64UrlEncoding);
+        const auto canonical = bytes.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+        auto unpadded = encoded;
+        while (unpadded.endsWith('=')) unpadded.chop(1);
+        if (canonical != unpadded) return hysteria2LinkError(error, QObject::tr("Hysteria2 分享内容的 Base64URL 编码无效"));
+        QJsonParseError jsonError;
+        const auto document = QJsonDocument::fromJson(bytes, &jsonError);
+        if (jsonError.error != QJsonParseError::NoError || !document.isObject()) {
+            return hysteria2LinkError(error, QObject::tr("Hysteria2 分享内容不是有效的 JSON 对象"));
+        }
+        const auto object = document.object();
+        for (const auto &required : {"addr", "port"}) {
+            if (!object.contains(required)) return hysteria2LinkError(error, QObject::tr("Hysteria2 分享缺少字段：%1").arg(required));
+        }
+        for (auto item = object.begin(); item != object.end(); ++item) {
+            const auto field = bean->_map.value(item.key());
+            if (!field) return hysteria2LinkError(error, QObject::tr("Hysteria2 分享包含未支持的字段：%1").arg(item.key()));
+            const auto value = item.value();
+            const auto number = value.toDouble();
+            const bool integral = value.isDouble() && std::floor(number) == number;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const bool validInteger64 = value.isDouble() && value.toInteger(-1) >= 0;
+#else
+            const bool validInteger64 = integral && number >= 0 && number < 9223372036854775808.0;
+#endif
+            const bool valid = (field->type == itemType::string && value.isString()) ||
+                               (field->type == itemType::boolean && value.isBool()) ||
+                               (field->type == itemType::integer && integral &&
+                                number >= std::numeric_limits<int>::min() && number <= std::numeric_limits<int>::max()) ||
+                               (field->type == itemType::integer64 && validInteger64);
+            if (!valid) return hysteria2LinkError(error, QObject::tr("Hysteria2 分享字段类型无效：%1").arg(item.key()));
+        }
+        if (object.contains("_v") && object.value("_v").toInt() != 0) return hysteria2LinkError(error, QObject::tr("不支持此 Hysteria2 节点数据版本"));
+        bean->FromJson(object);
+        return true;
+    }
+
+    bool parseHysteria2Link(const QString &link, NekoGui_fmt::QUICBean *bean, QString *error) {
+        const QUrl url(link.trimmed(), QUrl::StrictMode);
+        if (!url.isValid()) return hysteria2LinkError(error, QObject::tr("Hysteria2 链接格式无效"));
+        NekoGui_fmt::QUICBean candidate(NekoGui_fmt::QUICBean::proxy_Hysteria2);
+        if (url.scheme() == "nekoray") {
+            if (!hysteria2ShareObject(url, &candidate, error)) return false;
+        } else {
+            if ((url.scheme() != "hysteria2" && url.scheme() != "hy2") || (!url.path().isEmpty() && url.path() != "/")) {
+                return hysteria2LinkError(error, QObject::tr("Hysteria2 链接必须使用 hy2:// 或 hysteria2://，且不能包含路径"));
+            }
+            candidate.serverAddress = url.host(QUrl::FullyDecoded);
+            candidate.serverPort = url.port(443);
+            // The whole user-info is the password, including the colon in
+            // userpass authentication. Qt forbids FullyDecoded on userInfo.
+            if (!hysteria2DecodeComponent(url.userInfo(QUrl::FullyEncoded), &candidate.password) ||
+                !hysteria2DecodeComponent(url.fragment(QUrl::FullyEncoded), &candidate.name)) {
+                return hysteria2LinkError(error, QObject::tr("Hysteria2 密码或节点名称包含无效的 UTF-8 编码"));
+            }
+            QSet<QString> seen;
+            for (const auto &item : QUrlQuery(url).queryItems(QUrl::FullyEncoded)) {
+                QString queryName, queryValue;
+                if (!hysteria2DecodeComponent(item.first, &queryName) || !hysteria2DecodeComponent(item.second, &queryValue)) {
+                    return hysteria2LinkError(error, QObject::tr("Hysteria2 链接参数包含无效的 UTF-8 编码"));
+                }
+                const auto key = hysteria2QueryKey(queryName);
+                if (seen.contains(key)) return hysteria2LinkError(error, QObject::tr("Hysteria2 链接包含重复或冲突参数：%1").arg(queryName));
+                seen.insert(key);
+                if (key == "sni") candidate.sni = queryValue;
+                else if (key == "alpn") candidate.alpn = queryValue;
+                else if (key == "caText") candidate.caText = queryValue;
+                else if (key == "obfsType") candidate.obfsType = queryValue;
+                else if (key == "obfsPassword") candidate.obfsPassword = queryValue;
+                else if (key == "hopPort") candidate.hopPort = queryValue;
+                else if (key == "bbrProfile") candidate.bbrProfile = queryValue;
+                else if (key == "hopIntervalMax") candidate.hopIntervalMax = queryValue;
+                else if (key == "hopIntervalMin") {
+                    if (queryName == "hopInterval") {
+                        qint64 seconds;
+                        if (!hysteria2LinkInteger(queryValue, &seconds) || seconds > std::numeric_limits<int>::max()) {
+                            return hysteria2LinkError(error, QObject::tr("Hysteria2 旧版 hopInterval 必须是有效的非负整数秒"));
+                        }
+                        candidate.hopInterval = static_cast<int>(seconds);
+                    } else {
+                        candidate.hopIntervalMin = queryValue;
+                    }
+                } else if (key == "allowInsecure" || key == "disableChromeParrot" || key == "disableSni" || key == "disableMtuDiscovery") {
+                    bool value;
+                    if (!hysteria2LinkBoolean(queryValue, &value)) return hysteria2LinkError(error, QObject::tr("Hysteria2 布尔参数 %1 必须是 0、1、false 或 true").arg(queryName));
+                    if (key == "allowInsecure") candidate.allowInsecure = value;
+                    else if (key == "disableChromeParrot") candidate.disableChromeParrot = value;
+                    else if (key == "disableSni") candidate.disableSni = value;
+                    else candidate.disableMtuDiscovery = value;
+                } else if (key == "geckoMinPacketSize" || key == "geckoMaxPacketSize" || key == "uploadMbps" || key == "downloadMbps" ||
+                           key == "streamReceiveWindow" || key == "connectionReceiveWindow") {
+                    qint64 value;
+                    const bool window = key == "streamReceiveWindow" || key == "connectionReceiveWindow";
+                    if (!hysteria2LinkInteger(queryValue, &value) || (!window && value > std::numeric_limits<int>::max())) {
+                        return hysteria2LinkError(error, QObject::tr("Hysteria2 参数 %1 必须是范围内的非负整数").arg(queryName));
+                    }
+                    if (key == "geckoMinPacketSize") candidate.geckoMinPacketSize = static_cast<int>(value);
+                    else if (key == "geckoMaxPacketSize") candidate.geckoMaxPacketSize = static_cast<int>(value);
+                    else if (key == "uploadMbps") candidate.uploadMbps = static_cast<int>(value);
+                    else if (key == "downloadMbps") candidate.downloadMbps = static_cast<int>(value);
+                    else if (key == "streamReceiveWindow") candidate.streamReceiveWindow = value;
+                    else candidate.connectionReceiveWindow = value;
+                } else {
+                    return hysteria2LinkError(error, QObject::tr("Hysteria2 链接包含未支持的参数：%1").arg(queryName));
+                }
+            }
+        }
+        const auto invalid = candidate.Validate();
+        if (!invalid.isEmpty()) return hysteria2LinkError(error, invalid);
+        auto state = candidate.ToJson();
+        // JsonStore omits empty strings and stores pointers to members. Do
+        // not copy the temporary bean; commit a complete replacement state.
+        for (const auto &item : candidate._map) {
+            if (item->type == itemType::string && !state.contains(item->name)) state[item->name] = "";
+        }
+        bean->FromJson(state);
+        return true;
+    }
+}
+
 namespace NekoGui_fmt {
 
 #define DECODE_V2RAY_N_1                                                                                                        \
@@ -251,7 +434,9 @@ namespace NekoGui_fmt {
         return !(username.isEmpty() || password.isEmpty() || serverAddress.isEmpty());
     }
 
-    bool QUICBean::TryParseLink(const QString &link) {
+    bool QUICBean::TryParseLink(const QString &link, QString *error) {
+        if (error != nullptr) error->clear();
+        if (proxy_type == proxy_Hysteria2) return parseHysteria2Link(link, this, error);
         auto url = QUrl(link);
         auto query = QUrlQuery(url.query());
         if (url.host().isEmpty() || url.port() == -1) return false;
@@ -304,21 +489,6 @@ namespace NekoGui_fmt {
             udpRelayMode = query.queryItemValue("udp_relay_mode");
             allowInsecure = query.queryItemValue("allow_insecure") == "1";
             disableSni = query.queryItemValue("disable_sni") == "1";
-        } else if (QStringList{"hy2", "hysteria2"}.contains(url.scheme())) {
-            name = url.fragment(QUrl::FullyDecoded);
-            serverAddress = url.host();
-            serverPort = url.port();
-            hopPort = query.queryItemValue("mport");
-            obfsPassword = query.queryItemValue("obfs-password");
-            allowInsecure = QStringList{"1", "true"}.contains(query.queryItemValue("insecure"));
-
-            if (url.password().isEmpty()) {
-                password = url.userName();
-            } else {
-                password = url.userName() + ":" + url.password();
-            }
-
-            sni = query.queryItemValue("sni");
         }
 
         return true;

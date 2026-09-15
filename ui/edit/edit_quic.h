@@ -5,6 +5,12 @@
 #include <QHBoxLayout>
 #include "profile_editor.h"
 
+class QCheckBox;
+class QComboBox;
+class QLineEdit;
+class QScrollArea;
+class QToolButton;
+
 QT_BEGIN_NAMESPACE
 namespace Ui {
     class EditQUIC;
@@ -28,6 +34,15 @@ public:
 private:
     Ui::EditQUIC *ui;
     std::shared_ptr<NekoGui::ProxyEntity> ent;
+
+    QToolButton *hy2AdvancedToggle;
+    QScrollArea *hy2Advanced;
+    QComboBox *hy2BbrProfile, *hy2ObfsType;
+    QLineEdit *hy2GeckoMinPacketSize, *hy2GeckoMaxPacketSize;
+    QLineEdit *hy2HopIntervalMin, *hy2HopIntervalMax;
+    QCheckBox *hy2DisableChromeParrot;
+
+    void updateHysteria2AdvancedState();
 
     struct {
         QString caText;

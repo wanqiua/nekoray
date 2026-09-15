@@ -68,7 +68,7 @@ namespace NekoGui {
         int core_port = 19810;
         int started_id = -1919;
         bool core_running = false;
-        bool prepare_exit = false;
+        std::atomic_bool prepare_exit{false};
         bool spmode_vpn = false;
         bool spmode_system_proxy = false;
         bool need_keep_vpn_off = false;

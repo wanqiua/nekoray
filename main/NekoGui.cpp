@@ -72,8 +72,9 @@ namespace NekoGui_ConfigItem {
             if (without.contains(item->name)) continue;
             switch (item->type) {
                 case itemType::string:
-                    // Allow Empty
-                    if (!((QString *) item->ptr)->isEmpty()) {
+                    // Most legacy fields omit empty strings. Opt in when an
+                    // explicit empty value differs from the constructor default.
+                    if (item->preserve_empty_string || !((QString *) item->ptr)->isEmpty()) {
                         object.insert(item->name, *(QString *) item->ptr);
                     }
                     break;
@@ -137,7 +138,11 @@ namespace NekoGui_ConfigItem {
                     if (value.type() != QJsonValue::Double) {
                         continue;
                     }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                    *(long long *) item->ptr = value.toInteger();
+#else
                     *(long long *) item->ptr = value.toDouble();
+#endif
                     break;
                 case itemType::boolean:
                     if (value.type() != QJsonValue::Bool) {

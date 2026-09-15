@@ -237,9 +237,18 @@ namespace SubscriptionMetadataRegression {
         GroupFixture other;
         auto old = target.add(1080, "same name", 1);
         auto unrelated = other.add(1081, "same name", 2);
+        const auto before = target.group->ToJson();
         auto parsed = target.stage("socks://127.0.0.1:1081#same%20name\nunknown://invalid");
         QCOMPARE(parsed.rejected_count, 1);
         QCOMPARE(parsed.updated_order.size(), 1);
+        const auto rejected = NekoGui_sub::CommitSubscriptionUpdate(target.group, parsed, {});
+        QVERIFY(!rejected.applied);
+        QCOMPARE(target.group->ToJson(), before);
+        QVERIFY(NekoGui::profileManager->GetProfile(old->id) == old);
+        QCOMPARE(old->core_preference, 1);
+        QVERIFY(NekoGui::profileManager->GetProfile(unrelated->id) == unrelated);
+        parsed = target.stage("socks://127.0.0.1:1081#same%20name");
+        QCOMPARE(parsed.rejected_count, 0);
         const auto result = NekoGui_sub::CommitSubscriptionUpdate(target.group, parsed, {});
         QVERIFY(result.applied);
         QCOMPARE(result.preserved, 0);

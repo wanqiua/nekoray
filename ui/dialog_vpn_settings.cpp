@@ -26,6 +26,14 @@ DialogVPNSettings::DialogVPNSettings(QWidget *parent) : QDialog(parent), ui(new 
     //
     D_LOAD_STRING_PLAIN(vpn_rule_cidr)
     D_LOAD_STRING_PLAIN(vpn_rule_process)
+    const auto settings = NekoGui::dataStore;
+    const auto strategy = settings->routing ? settings->routing->domain_strategy.trimmed() : QString();
+    if ((NekoGui::coreType != NekoGui::CoreType::SING_BOX || !settings->vpn_internal_tun) &&
+        (strategy.isEmpty() || strategy == "AsIs" || strategy == "as_is")) {
+        const auto hint = tr("当前设置下，FakeIP（FakeDNS）不能与 IP 范围同时使用。可关闭 FakeDNS，或清空 IP 范围并改用进程范围。");
+        ui->fake_dns->setToolTip(hint);
+        ui->vpn_rule_cidr->setToolTip(hint);
+    }
     //
     connect(ui->whitelist_mode, &QCheckBox::stateChanged, this, [=](int state) {
         if (state == Qt::Checked) {

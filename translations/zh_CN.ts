@@ -1877,6 +1877,74 @@ Split by line.</source>
         <source>未能建立 TUN 所需的本地代理入口，TUN 未开启。</source>
         <translation>未能建立 TUN 所需的本地代理入口，TUN 未开启。</translation>
     </message>
+    <message>
+        <source>TCP: %1 ms</source>
+        <translation>TCP：%1 ms</translation>
+    </message>
+    <message>
+        <source>Full test complete</source>
+        <translation>综合测试完成</translation>
+    </message>
+    <message>
+        <source>TCP connection failed</source>
+        <translation>TCP 连接失败</translation>
+    </message>
+    <message>
+        <source>Full test failed</source>
+        <translation>综合测试失败</translation>
+    </message>
+    <message>
+        <source>URL untested</source>
+        <translation>URL 未测试</translation>
+    </message>
+    <message>
+        <source>Unknown core (legacy)</source>
+        <translation>未知内核（旧版记录）</translation>
+    </message>
+    <message>
+        <source>Success</source>
+        <translation>成功</translation>
+    </message>
+    <message>
+        <source>Cancelled</source>
+        <translation>已取消</translation>
+    </message>
+    <message>
+        <source>Outdated result</source>
+        <translation>已失效</translation>
+    </message>
+    <message>
+        <source>Legacy result</source>
+        <translation>旧版记录</translation>
+    </message>
+    <message>
+        <source>TCP test</source>
+        <translation>TCP 测试</translation>
+    </message>
+    <message>
+        <source>Full test</source>
+        <translation>综合测试</translation>
+    </message>
+    <message>
+        <source>URL test</source>
+        <translation>URL 测试</translation>
+    </message>
+    <message>
+        <source>Unknown date</source>
+        <translation>时间未知</translation>
+    </message>
+    <message>
+        <source>Current connection</source>
+        <translation>当前连接</translation>
+    </message>
+    <message>
+        <source>Next connection</source>
+        <translation>下次连接</translation>
+    </message>
+    <message>
+        <source>The node or settings changed during startup, or the core exited. The pending start was cancelled.</source>
+        <translation>节点或设置在启动时发生变化，或内核已退出。本次启动已取消。</translation>
+    </message>
 </context>
 <context>
     <name>ProxyItem</name>
@@ -2647,6 +2715,10 @@ Release note:
     <message>
         <source>当前 %1 构建缺少此配置需要的功能：%2</source>
         <translation>当前 %1 构建缺少此配置需要的功能：%2</translation>
+    </message>
+    <message>
+        <source>当前 sing-box 的底层 DNS 覆盖无法在 Xray 中等价保留</source>
+        <translation>当前 sing-box 的底层 DNS 覆盖无法在 Xray 中等价保留</translation>
     </message>
 </context>
 <context>

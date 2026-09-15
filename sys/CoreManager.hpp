@@ -49,7 +49,7 @@ public:
     quint64 Generation(int core) const;
     bool Ready(int core) const;
     static QString Name(int core);
-    std::function<void(int)> onExited;
+    std::function<void(int, quint64)> onExited;
 
 private:
     std::array<std::shared_ptr<Instance>, 2> instances;

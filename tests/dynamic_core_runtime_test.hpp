@@ -1,7 +1,7 @@
-// Included inside GuiRegressionTest. Every endpoint and listener is loopback;
+// Definitions for GuiRegressionTest. Every endpoint and listener is loopback;
 // none of these cases changes the host's system proxy or TUN routes.
 
-    void manualCoreSwitchAndSameConfigurationNoop() {
+    void GuiRegressionTest::manualCoreSwitchAndSameConfigurationNoop() {
         FixtureServer server;
         auto profile = addNode(server.serverPort());
         profile->core_preference = 1;
@@ -31,7 +31,7 @@
         QCOMPARE(window->core_session, box);
     }
 
-    void bulkPreferenceKeepsConnectionUntilExplicitClick() {
+    void GuiRegressionTest::bulkPreferenceKeepsConnectionUntilExplicitClick() {
         FixtureServer server;
         auto active = addNode(server.serverPort());
         auto idle = addNode(server.serverPort());
@@ -57,7 +57,7 @@
         QCOMPARE(window->running, active);
     }
 
-    void mixedCoreBatchKeepsOneBudgetAndSurvivesSwitch() {
+    void GuiRegressionTest::mixedCoreBatchKeepsOneBudgetAndSurvivesSwitch() {
         ProbeCount count;
         FixtureServer server(220, 204, {}, &count);
         auto activeGroup = addGroup("active connection outside test group");
@@ -96,7 +96,7 @@
         qInfo("Mixed-core batch: peak %d, configured total %d", count.peak, NekoGui::dataStore->test_concurrent);
     }
 
-    void targetStartFailureRestoresSavedConfiguration() {
+    void GuiRegressionTest::targetStartFailureRestoresSavedConfiguration() {
         FixtureServer server;
         auto profile = addNode(server.serverPort());
         profile->core_preference = 1;
@@ -123,7 +123,7 @@
         QVERIFY(profile->LastTestResult(0).timestamp_ms == 0);
     }
 
-    void invalidTargetPreflightKeepsCurrentConnection() {
+    void GuiRegressionTest::invalidTargetPreflightKeepsCurrentConnection() {
         FixtureServer server;
         auto active = addNode(server.serverPort());
         active->core_preference = 1;
@@ -144,7 +144,7 @@
         QVERIFY(!invalid->IsRemovalCandidate(0, window->core_manager->Identity(0), window->test_fingerprint(invalid, 0)));
     }
 
-    void latestSelectionWinsAndDeletedPreparationCannotStart() {
+    void GuiRegressionTest::latestSelectionWinsAndDeletedPreparationCannotStart() {
         FixtureServer server;
         auto active = addNode(server.serverPort());
         active->core_preference = 1;
@@ -172,7 +172,7 @@
         QVERIFY(window->core_session->profile != replacement);
     }
 
-    void ownedCoreCrashRestoresSavedSession() {
+    void GuiRegressionTest::ownedCoreCrashRestoresSavedSession() {
         FixtureServer server;
         auto profile = addNode(server.serverPort());
         profile->core_preference = 1;
@@ -189,6 +189,27 @@
         QCOMPARE(window->core_session->fingerprint, saved->fingerprint);
         QCOMPARE(window->running, profile);
         QCOMPARE(profile->core_preference, 1);
+        const auto recovered = window->core_session;
+        const auto latestIntent = window->core_intent_sequence.load();
+        window->core_manager->onExited(0, generation); // A delayed old daemon notification.
+        QCOMPARE(window->core_session, recovered);
+        QCOMPARE(window->core_intent_sequence.load(), latestIntent);
+        QVERIFY(!window->core_switch_busy);
         window->speedtest_current();
         QTRY_COMPARE_WITH_TIMEOUT(profile->LastTestResult(0, "current").status, NekoGui::TestResultStatus::Success, 5000);
+    }
+
+    void GuiRegressionTest::exitPreparationRejectsNewTests() {
+        FixtureServer server;
+        addNode(server.serverPort());
+        window->refresh_proxy_list();
+        const auto restore = qScopeGuard([] { NekoGui::dataStore->prepare_exit = false; });
+        NekoGui::dataStore->prepare_exit = true;
+        const int jobs = window->core_background_jobs.load();
+        window->speedtest_current_group(libcore::UrlTest);
+        window->speedtest_current_group(libcore::FullTest);
+        window->speedtest_current();
+        QVERIFY(!speedtest_batch);
+        QCOMPARE(window->core_background_jobs.load(), jobs);
+        QCOMPARE(server.requests, 0);
     }

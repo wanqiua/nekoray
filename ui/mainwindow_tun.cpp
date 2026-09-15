@@ -2,6 +2,7 @@
 #include "ui_mainwindow.h"
 
 #include "CoreRuntime.hpp"
+#include "TunLifecycle.hpp"
 #include "db/traffic/TrafficLooper.hpp"
 #include "sys/OwnedElevatedProcess.hpp"
 
@@ -30,15 +31,9 @@ struct TunDaemon {
     QString buildIdentity;
 };
 
-struct TunState {
-    std::shared_ptr<TunDaemon> daemon;
-    libcore::LoadConfigReq request;
-    QString fingerprint;
-    bool enabled = false;
-    // A timed-out RPC must be reconciled with Stop before another Start or
-    // process exit. This is distinct from a confirmed enabled checkbox.
-    bool uncertain = false;
-};
+using TunState = TunLifecycle::State<TunDaemon, libcore::LoadConfigReq>;
+using TunOutcome = TunLifecycle::Outcome<TunState>;
+using TunLifecycle::Stop;
 
 struct TunStartOptions {
     NekoGui_sys::CoreManager *manager = nullptr;
@@ -56,12 +51,6 @@ struct TunRequest {
     bool enable = false;
     bool save = true;
     TunStartOptions options;
-};
-
-struct TunOutcome {
-    TunState state;
-    QString notice;
-    bool succeeded = false;
 };
 
 void IncludeExternalCorePaths(BuildConfigContext &context, const std::shared_ptr<RunningCoreSession> &session) {
@@ -84,68 +73,6 @@ void IncludeExternalCorePaths(BuildConfigContext &context, const std::shared_ptr
     if (session) for (const auto &external : session->external) add(external->program);
     context.tunBypassProcessPaths.removeDuplicates();
     context.tunBypassProcessPaths.sort();
-}
-
-QString TunStartError(const QString &error) {
-    // Core diagnostics may contain user-configured DNS URLs and credentials.
-    // Only map known causes; never put raw configuration diagnostics in logs.
-    if (error.contains("permission", Qt::CaseInsensitive) || error.contains("access denied", Qt::CaseInsensitive))
-        return QObject::tr("TUN 启动失败：没有所需的系统权限，请重新开启并完成系统授权。");
-    if (error.contains("wintun", Qt::CaseInsensitive))
-        return QObject::tr("TUN 启动失败：无法加载 Wintun，请检查本版本配套的驱动文件。");
-    if (error.contains("address already in use", Qt::CaseInsensitive) || error.contains("already exists", Qt::CaseInsensitive))
-        return QObject::tr("TUN 启动失败：端口或虚拟网卡已被占用，请关闭冲突的程序后重试。");
-    return QObject::tr("TUN 启动失败，已尝试清理本次启动；请检查 TUN 设置和系统授权。");
-}
-
-bool StopTun(TunState &state, bool exitDaemon, QString &error) {
-    if (!state.daemon) {
-        state = {};
-        return true;
-    }
-    const auto daemon = state.daemon;
-    if (!daemon->process->Running()) {
-        state = {};
-        return true;
-    }
-    bool acknowledged = false;
-    QString stopError;
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        stopError = daemon->client->Stop(&acknowledged);
-        if (acknowledged || !daemon->process->Running()) break;
-    }
-    if (!daemon->process->Running()) {
-        state = {};
-        return true;
-    }
-    if (!acknowledged || !stopError.isEmpty()) {
-        state.uncertain = true;
-        error = QObject::tr("尚未确认 TUN 已停止，已保留该进程的控制权；请重试关闭 TUN。");
-        return false;
-    }
-    state.enabled = false;
-    state.uncertain = false;
-    if (!exitDaemon) return true;
-    // Exit is sent only after Stop confirms that privileged resources closed.
-    daemon->client->Exit();
-    if (!daemon->process->WaitForExit(2000) && !daemon->process->TerminateOwned(2000, error)) return false;
-    state = {};
-    return true;
-}
-
-// This path is only used for a newly launched daemon before any Start request
-// has been sent. There can be no TUN routes to clean up in that process.
-bool DiscardUnstartedDaemon(TunState &state, QString &error) {
-    if (!state.daemon) return true;
-    const auto daemon = state.daemon;
-    if (daemon->process->Running()) {
-        bool stopped = false;
-        const auto stopError = daemon->client->Stop(&stopped);
-        if (stopped && stopError.isEmpty()) daemon->client->Exit();
-        if (!daemon->process->WaitForExit(1000) && !daemon->process->TerminateOwned(2000, error)) return false;
-    }
-    state = {};
-    return true;
 }
 
 bool CheckTun(const std::shared_ptr<NekoGui_rpc::Client> &client, const libcore::LoadConfigReq &request,
@@ -265,7 +192,7 @@ TunOutcome EnableTun(TunState current, const TunStartOptions &options, const std
         }
         if (!verified || cancelledNow()) {
             QString cleanupError;
-            if (!DiscardUnstartedDaemon(out.state, cleanupError)) out.notice = cleanupError;
+            if (!TunLifecycle::DiscardUnstarted(out.state, cleanupError)) out.notice = cleanupError;
             else if (!cancelledNow()) out.notice = QObject::tr("TUN 辅助进程未完成授权或身份校验，TUN 未开启。");
             return out;
         }
@@ -273,70 +200,12 @@ TunOutcome EnableTun(TunState current, const TunStartOptions &options, const std
     if (!CheckTun(out.state.daemon->client, options.request, identity, out.notice) || !stillValid()) {
         if (newlyLaunched) {
             QString cleanupError;
-            if (!DiscardUnstartedDaemon(out.state, cleanupError)) out.notice = cleanupError;
+            if (!TunLifecycle::DiscardUnstarted(out.state, cleanupError)) out.notice = cleanupError;
         }
         return out;
     }
 
-    // A settings change reuses the elevated control daemon. Validate first,
-    // then stop/start; keep the exact prior request for a possible rollback.
-    const auto previous = out.state;
-    if ((out.state.enabled || out.state.uncertain) && !StopTun(out.state, false, out.notice)) return out;
-    if (cancelledNow()) {
-        StopTun(out.state, true, out.notice);
-        return out;
-    }
-    bool ok = false;
-    const auto startError = out.state.daemon->client->Start(&ok, options.request);
-    if (ok && startError.isEmpty()) {
-        out.state.enabled = true;
-        out.state.uncertain = false;
-        out.state.request = options.request;
-        out.state.fingerprint = options.fingerprint;
-        if (cancelledNow()) {
-            StopTun(out.state, true, out.notice);
-        } else if (!stillValid()) {
-            QString cleanupError;
-            if (!StopTun(out.state, false, cleanupError)) {
-                out.notice = cleanupError;
-                return out;
-            }
-            if (previous.enabled && !cancelledNow()) {
-                bool restored = false;
-                const auto restoreError = previous.daemon->client->Start(&restored, previous.request);
-                if (restored && restoreError.isEmpty()) {
-                    out.state = previous;
-                    out.notice = QObject::tr("TUN 设置在启动期间发生变化，已恢复原来的 TUN 连接，请重新应用设置。");
-                    return out;
-                }
-                out.state.uncertain = !restored;
-            }
-            if (!StopTun(out.state, true, cleanupError)) out.notice = cleanupError;
-        } else {
-            out.succeeded = true;
-        }
-        return out;
-    }
-
-    out.state.uncertain = !ok;
-    out.notice = ok ? TunStartError(startError) : QObject::tr("未收到 TUN 启动确认，正在清理本次启动。");
-    QString cleanupError;
-    if (!StopTun(out.state, false, cleanupError)) {
-        out.notice = cleanupError;
-        return out;
-    }
-    if (previous.enabled && !cancelledNow()) {
-        bool restored = false;
-        const auto restoreError = previous.daemon->client->Start(&restored, previous.request);
-        if (restored && restoreError.isEmpty()) {
-            out.state = previous;
-            out.notice = QObject::tr("新的 TUN 设置启动失败，已恢复原来的 TUN 连接。");
-            return out;
-        }
-        out.state.uncertain = !restored;
-        out.notice = QObject::tr("新的 TUN 设置启动失败，原连接也未能恢复；请检查设置后重试。");
-    }
-    if (!StopTun(out.state, true, cleanupError)) out.notice = cleanupError;
+    TunLifecycle::Apply(out, options.request, options.fingerprint, cancelledNow, stillValid);
     return out;
 }
 
@@ -431,11 +300,11 @@ private:
             if (request.enable) out = EnableTun(before, request.options, cancellation);
             else {
                 out.state = before;
-                out.succeeded = StopTun(out.state, true, out.notice);
+                out.succeeded = Stop(out.state, true, out.notice);
             }
             if (!guarded) {
                 QString ignored;
-                StopTun(out.state, true, ignored);
+                Stop(out.state, true, ignored);
                 return;
             }
             runOnUiThread([guarded, request, cancellation, out = std::move(out)]() mutable {

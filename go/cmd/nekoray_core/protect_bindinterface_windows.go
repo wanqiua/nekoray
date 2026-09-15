@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"log"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/matsuridayo/libneko/iphlpapi"
 
+	xnet "github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/transport/internet"
 )
 
@@ -19,6 +21,43 @@ import (
 var routes []iphlpapi.RouteRow
 var interfaces []net.Interface
 var lock sync.Mutex
+
+type windowsProtectedSystemDialer struct {
+	internet.SystemDialer
+}
+
+func (d *windowsProtectedSystemDialer) Dial(ctx context.Context, source xnet.Address, destination xnet.Destination, sockopt *internet.SocketConfig) (net.Conn, error) {
+	// Xray creates unconnected UDP sockets through its listener controller,
+	// which only sees the local address. Leaving it unspecified would bind
+	// even a loopback SOCKS relay to the physical interface while TUN is active.
+	// Use a loopback source for that case; all other routes keep their existing
+	// interface protection, and explicit source/socket settings are preserved.
+	if destination.Network == xnet.Network_UDP && destination.Address.Family().IsIP() && destination.Address.IP().IsLoopback() &&
+		(source == nil || (source.Family().IsIP() && source.IP().IsUnspecified())) &&
+		(sockopt == nil || len(sockopt.BindAddress) == 0 || sockopt.BindPort == 0) {
+		if destination.Address.Family().IsIPv4() {
+			source = xnet.LocalHostIP
+		} else {
+			source = xnet.LocalHostIPv6
+		}
+	}
+	return d.SystemDialer.Dial(ctx, source, destination, sockopt)
+}
+
+func installWindowsProtectedSystemDialer(controller func(string, string, syscall.RawConn) error) error {
+	// This fixed Xray API has no dialer getter. Registration succeeds only for
+	// its default dialer; an already installed custom dialer must stay in place.
+	if err := internet.RegisterDialerController(controller); err != nil {
+		return err
+	}
+	systemDialer := &internet.DefaultSystemDialer{}
+	internet.UseAlternativeSystemDialer(systemDialer)
+	if err := internet.RegisterDialerController(controller); err != nil {
+		return err
+	}
+	internet.UseAlternativeSystemDialer(&windowsProtectedSystemDialer{SystemDialer: systemDialer})
+	return nil
+}
 
 func init() {
 	if os.Getenv("NKR_CORE_RAY_WINDOWS_DISABLE_AUTO_INTERFACE") == "1" {
@@ -53,7 +92,8 @@ func initRoute() {
 		})
 		return err
 	})
-	internet.RegisterDialerController(func(network, address string, conn syscall.RawConn) error {
+	// All setup happens during package initialization, before any core starts.
+	if err := installWindowsProtectedSystemDialer(func(network, address string, conn syscall.RawConn) error {
 		var err error
 		conn.Control(func(fd uintptr) {
 			bindInterfaceIndex := getBindInterfaceIndex(address)
@@ -72,7 +112,9 @@ func initRoute() {
 			}
 		})
 		return err
-	})
+	}); err != nil {
+		log.Println("Windows interface protection kept the existing custom system dialer:", err)
+	}
 	underlyingNetDialer = &net.Dialer{
 		Control: func(network, address string, c syscall.RawConn) error {
 			c.Control(func(fd uintptr) {

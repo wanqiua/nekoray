@@ -192,6 +192,10 @@ namespace NekoGui {
             bean = new NekoGui_fmt::QUICBean(NekoGui_fmt::QUICBean::proxy_Hysteria2);
         } else if (type == "tuic") {
             bean = new NekoGui_fmt::QUICBean(NekoGui_fmt::QUICBean::proxy_TUIC);
+        } else if (type == "anytls") {
+            bean = new NekoGui_fmt::AnyTLSBean();
+        } else if (type == "snell") {
+            bean = new NekoGui_fmt::SnellBean();
         } else if (type == "custom") {
             bean = new NekoGui_fmt::CustomBean();
         } else {

@@ -8,6 +8,8 @@
 #include "ui/edit/edit_trojan_vless.h"
 #include "ui/edit/edit_naive.h"
 #include "ui/edit/edit_quic.h"
+#include "ui/edit/edit_anytls.h"
+#include "ui/edit/edit_snell.h"
 #include "ui/edit/edit_custom.h"
 
 #include "fmt/includes.h"
@@ -159,6 +161,8 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
         LOAD_TYPE("hysteria")
         LOAD_TYPE("hysteria2")
         LOAD_TYPE("tuic")
+        LOAD_TYPE("anytls")
+        LOAD_TYPE("snell")
         ui->type->addItem(tr("Custom (%1 outbound)").arg(software_core_name), "internal");
         ui->type->addItem(tr("Custom (%1 config)").arg(software_core_name), "internal-full");
         ui->type->addItem(tr("Custom (Extra Core)"), "custom");
@@ -237,6 +241,14 @@ void DialogEditProfile::typeSelected(const QString &newType) {
         auto _innerWidget = new EditQUIC(this);
         innerWidget = _innerWidget;
         innerEditor = _innerWidget;
+    } else if (type == "anytls") {
+        auto editor = new EditAnyTLS(this);
+        innerWidget = editor;
+        innerEditor = editor;
+    } else if (type == "snell") {
+        auto editor = new EditSnell(this);
+        innerWidget = editor;
+        innerEditor = editor;
     } else if (type == "custom" || type == "internal" || type == "internal-full") {
         auto _innerWidget = new EditCustom(this);
         innerWidget = _innerWidget;
@@ -432,6 +444,15 @@ bool DialogEditProfile::onEnd() {
     // cached custom
     ent->bean->custom_outbound = CACHE.custom_outbound;
     ent->bean->custom_config = CACHE.custom_config;
+
+    QString invalid;
+    if (auto bean = dynamic_cast<NekoGui_fmt::AnyTLSBean *>(ent->bean.get())) invalid = bean->Validate();
+    if (auto bean = dynamic_cast<NekoGui_fmt::SnellBean *>(ent->bean.get())) invalid = bean->Validate();
+    if (auto bean = dynamic_cast<NekoGui_fmt::QUICBean *>(ent->bean.get())) invalid = bean->Validate();
+    if (!invalid.isEmpty()) {
+        MessageBoxWarning(tr("无法保存"), invalid);
+        return false;
+    }
 
     return true;
 }

@@ -48,8 +48,9 @@ void MainWindow::setup_grpc() {
     defaultClient = initial->client.get(); // Legacy update API only; sessions/tests use explicit clients.
     NekoGui::dataStore->core_port = initial->port;
     NekoGui::dataStore->core_token = initial->token;
-    core_manager->onExited = [this](int core) {
-        if (NekoGui::dataStore->prepare_exit || core_switch_busy || !core_session || core_session->instance->core != core) return;
+    core_manager->onExited = [this](int core, quint64 exitedGeneration) {
+        if (NekoGui::dataStore->prepare_exit || core_switch_busy || !core_session ||
+            core_session->instance->core != core || core_session->generation != exitedGeneration) return;
         const auto saved = core_session;
         const auto now = QTime::currentTime();
         if (last_crashed_core == core && !last_core_crash.isNull() && last_core_crash.msecsTo(now) >= 0 && last_core_crash.msecsTo(now) < 10000) {
@@ -70,10 +71,12 @@ void MainWindow::setup_grpc() {
     };
     runOnNewThread([] { NekoGui_traffic::trafficLooper->Loop(); });
     const int remember = NekoGui::dataStore->remember_enable ? NekoGui::dataStore->remember_id : -1;
+    ++core_background_jobs;
     runOnNewThread([this, initial, remember] {
         QString error;
         const bool ready = core_manager->EnsureReady(initial->core, error);
         runOnUiThread([this, ready, error, remember] {
+            --core_background_jobs;
             if (!ready) core_notice_message(error);
             if (ready && remember >= 0 && !NekoGui::dataStore->prepare_exit) neko_start(remember);
             refresh_proxy_list();
@@ -90,6 +93,7 @@ inline std::shared_ptr<SpeedtestBatch> speedtest_batch;
 
 void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compare) {
     if (mode == 114514) {
+        if (current_test_cancel) current_test_cancel->store(true);
         if (speedtest_batch) {
             speedtest_batch->cancel();
             core_notice_message(tr("Test cancelled. Previous results are kept."));
@@ -97,6 +101,7 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
         return;
     }
 #ifndef NKR_NO_GRPC
+    if (NekoGui::dataStore->prepare_exit) return;
     if (speedtest_batch) {
         core_notice_message(tr("The previous test is finishing. You can cancel it from the test menu."));
         return;
@@ -122,6 +127,7 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
         for (int n = 0; n < options.size(); ++n) if (options[n]->isChecked()) flags.append(QString::number(n + 1));
         if (flags.isEmpty()) return;
     }
+    if (NekoGui::dataStore->prepare_exit || speedtest_batch) return;
     struct Work {
         std::shared_ptr<NekoGui::ProxyEntity> profile;
         int forcedCore = -1;
@@ -149,6 +155,7 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
     const int downloadTimeout = mode == libcore::FullTest ? NekoGui::dataStore->test_download_timeout : 0;
     const QPointer<MainWindow> guard(this);
 
+    ++core_background_jobs;
     runOnNewThread([this, guard, work, mode, flags, batch, latencyURL, downloadURL, timeout, downloadTimeout] {
         try {
             // This one queue is the total budget across both core families.
@@ -164,7 +171,10 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                     QString displayName, sourceFingerprint;
                     QByteArray beanSnapshot;
                     bool valid = false;
-                    std::shared_ptr<NekoGui::BuildConfigResult> built;
+                    std::shared_ptr<NekoGui::BuildConfigResult> built, alternateBuilt;
+                    libcore::TestReq alternateRequest;
+                    QString alternateFingerprint;
+                    int alternateCore = -1;
                     libcore::TestReq request;
                     request.set_mode(static_cast<libcore::TestMode>(mode));
                     request.set_timeout(timeout);
@@ -177,6 +187,8 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                     request.set_full_speed_timeout(downloadTimeout);
                     NekoGui::ProfileTestResult record;
                     record.mode = mode == libcore::TcpPing ? "tcp" : mode == libcore::FullTest ? "full" : "url";
+                    if (mode == libcore::FullTest) record.parameters = {{"latency", flags.contains("1")}, {"udp_latency", flags.contains("2")},
+                                                                      {"speed", flags.contains("3")}, {"in_out", flags.contains("4")}};
 
                     QSemaphore prepared;
                     runOnUiThread([&] {
@@ -194,7 +206,7 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                             } else {
                                 auto context = NekoGui::CaptureBuildConfigContext(core, true);
                                 context.tunProxyPort = tun_proxy_port;
-                                sourceFingerprint = NekoGui::CoreTestInputDigest(profile, context, mode, latencyURL, timeout, downloadURL, downloadTimeout);
+                                sourceFingerprint = NekoGui::CoreTestInputDigest(profile, context, mode, latencyURL, timeout, downloadURL, downloadTimeout, record.parameters);
                                 if (mode == libcore::TcpPing) {
                                     request.set_address(profile->bean->DisplayAddress().toStdString());
                                     record.generated_config_digest = NekoGui::CoreConfigDigest({{"address", profile->bean->DisplayAddress()}});
@@ -205,7 +217,20 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                                     if (!built->error.isEmpty()) {
                                         record.status = NekoGui::TestResultStatus::Unsupported;
                                         record.error = built->error;
-                                    } else request.mutable_config()->set_core_config(QJsonObject2QString(built->coreConfig, true).toStdString());
+                                    } else {
+                                        request.mutable_config()->set_core_config(QJsonObject2QString(built->coreConfig, true).toStdString());
+                                        if (task.forcedCore < 0 && resolution.Supports(1 - core)) {
+                                            auto alternateContext = NekoGui::CaptureBuildConfigContext(1 - core, true);
+                                            alternateContext.tunProxyPort = tun_proxy_port;
+                                            alternateBuilt = NekoGui::BuildConfig(profile, true, false, alternateContext);
+                                            if (alternateBuilt->error.isEmpty()) {
+                                                alternateCore = 1 - core;
+                                                alternateRequest = request;
+                                                alternateRequest.mutable_config()->set_core_config(QJsonObject2QString(alternateBuilt->coreConfig, true).toStdString());
+                                                alternateFingerprint = NekoGui::CoreTestInputDigest(profile, alternateContext, mode, latencyURL, timeout, downloadURL, downloadTimeout, record.parameters);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -214,78 +239,107 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                     prepared.acquire();
                     if (!valid) continue;
 
-                    record.core = core;
-                    record.config_fingerprint = sourceFingerprint;
                     std::list<std::shared_ptr<NekoGui_sys::ExternalProcess>> external;
-                    if (record.error.isEmpty()) {
-                        QString readyError;
-                        if (!core_manager->EnsureReady(core, readyError)) {
-                            record.status = NekoGui::TestResultStatus::CoreError;
-                            record.error = readyError;
-                        } else {
-                            record.build_id = core_manager->Identity(core);
-                            processGeneration = core_manager->Generation(core);
-                            if (!clients[core]) clients[core] = core_manager->Get(core)->client->CreateTestClient();
-                            if (built && !built->extRs.empty()) {
-                                if (!MaterializeCoreHelperFiles(built->extRs, record.error)) record.status = NekoGui::TestResultStatus::CoreError;
-                                QSemaphore started;
-                                runOnUiThread([&] {
-                                    external = CreateExtCFromExtR(built->extRs, false);
-                                    for (const auto &process : external) {
-                                        process->managed = false; // Test helper failure cannot stop the active proxy.
-                                        auto raw = process.get();
-                                        QObject::connect(raw, &QProcess::readyReadStandardOutput, raw, [raw] { raw->readAllStandardOutput(); });
-                                        QObject::connect(raw, &QProcess::readyReadStandardError, raw, [raw] { raw->readAllStandardError(); });
-                                        process->Start();
-                                        if (!process->waitForStarted(3000)) {
-                                            record.status = NekoGui::TestResultStatus::CoreError;
-                                            record.error = tr("External test helper could not start.");
-                                            break;
-                                        }
+                    const auto cleanup = [&] {
+                        if (!external.empty()) {
+                            QSemaphore stopped;
+                            runOnUiThread([&] {
+                                for (const auto &process : external) process->Kill();
+                                external.clear();
+                                stopped.release();
+                            }, DS_cores);
+                            stopped.acquire();
+                        }
+                        if (built) RemoveCoreHelperFiles(built->extRs);
+                    };
+                    for (int attempt = 0; attempt < 2; ++attempt) {
+                        record.core = core;
+                        record.config_fingerprint = sourceFingerprint;
+                        bool localUnsupported = false;
+                        if (record.error.isEmpty() && !batch->cancelled()) {
+                            QString readyError;
+                            if (!core_manager->EnsureReady(core, readyError)) {
+                                record.status = NekoGui::TestResultStatus::CoreError;
+                                record.error = readyError;
+                            } else {
+                                record.build_id = core_manager->Identity(core);
+                                processGeneration = core_manager->Generation(core);
+                                if (built) {
+                                    record.error = NekoGui::CoreBuildFeaturesError(built->coreConfig, core, core_manager->Features(core));
+                                    if (!record.error.isEmpty()) {
+                                        record.status = NekoGui::TestResultStatus::Unsupported;
+                                        localUnsupported = true;
                                     }
-                                    started.release();
-                                }, DS_cores);
-                                started.acquire();
-                            }
-                            if (record.error.isEmpty() && !batch->cancelled()) {
-                                bool rpcOK = false;
-                                const auto response = clients[core]->Test(&rpcOK, request, batch->cancellation());
-                                record.latency_ms = response.ms();
-                                record.error = QString::fromStdString(response.error());
-                                if (!rpcOK) record.status = batch->cancelled() ? NekoGui::TestResultStatus::Cancelled : NekoGui::TestResultStatus::CoreError;
-                                else if (response.error().empty()) record.status = NekoGui::TestResultStatus::Success;
-                                else switch (response.failure_category()) {
-                                    case libcore::FailureRemote: record.status = NekoGui::TestResultStatus::ConnectionFailure; break;
-                                    case libcore::FailureUnsupported:
-                                    case libcore::FailureConfig: record.status = NekoGui::TestResultStatus::Unsupported; break;
-                                    case libcore::FailureCancelled: record.status = NekoGui::TestResultStatus::Cancelled; break;
-                                    default: record.status = NekoGui::TestResultStatus::CoreError; break;
                                 }
-                                if (mode == libcore::FullTest && !response.full_report().empty()) {
-                                    if (!record.error.isEmpty()) record.error += "\n";
-                                    record.error += QString::fromStdString(response.full_report());
+                                if (!clients[core]) clients[core] = core_manager->Get(core)->client->CreateTestClient();
+                                if (record.error.isEmpty() && !batch->cancelled() && built && !built->extRs.empty()) {
+                                    if (!MaterializeCoreHelperFiles(built->extRs, record.error)) {
+                                        record.status = NekoGui::TestResultStatus::CoreError;
+                                    } else {
+                                        QSemaphore started;
+                                        runOnUiThread([&] {
+                                            if (!batch->cancelled()) external = CreateExtCFromExtR(built->extRs, false);
+                                            for (const auto &process : external) {
+                                                if (batch->cancelled()) break;
+                                                process->managed = false;
+                                                auto raw = process.get();
+                                                QObject::connect(raw, &QProcess::readyReadStandardOutput, raw, [raw] { raw->readAllStandardOutput(); });
+                                                QObject::connect(raw, &QProcess::readyReadStandardError, raw, [raw] { raw->readAllStandardError(); });
+                                                process->Start();
+                                                if (!process->waitForStarted(3000)) {
+                                                    record.status = NekoGui::TestResultStatus::CoreError;
+                                                    record.error = tr("External test helper could not start.");
+                                                    break;
+                                                }
+                                            }
+                                            started.release();
+                                        }, DS_cores);
+                                        started.acquire();
+                                    }
+                                }
+                                if (record.error.isEmpty() && !batch->cancelled()) {
+                                    bool rpcOK = false;
+                                    const auto response = clients[core]->Test(&rpcOK, request, batch->cancellation());
+                                    record.latency_ms = response.ms();
+                                    record.error = QString::fromStdString(response.error());
+                                    record.report = QString::fromStdString(response.full_report());
+                                    if (!rpcOK) record.status = batch->cancelled() ? NekoGui::TestResultStatus::Cancelled : NekoGui::TestResultStatus::CoreError;
+                                    else if (response.error().empty()) record.status = NekoGui::TestResultStatus::Success;
+                                    else switch (response.failure_category()) {
+                                        case libcore::FailureRemote: record.status = NekoGui::TestResultStatus::ConnectionFailure; break;
+                                        case libcore::FailureUnsupported:
+                                            localUnsupported = true;
+                                            record.status = NekoGui::TestResultStatus::Unsupported;
+                                            break;
+                                        case libcore::FailureConfig: record.status = NekoGui::TestResultStatus::Unsupported; break;
+                                        case libcore::FailureCancelled: record.status = NekoGui::TestResultStatus::Cancelled; break;
+                                        default: record.status = NekoGui::TestResultStatus::CoreError; break;
+                                    }
                                 }
                             }
                         }
+                        if (record.build_id.isEmpty() && core >= 0) record.build_id = core_manager->Identity(core);
+                        cleanup();
+                        // A local missing feature may select the other compatible
+                        // adapter. Remote failures never retry on a different core.
+                        if (attempt != 0 || !localUnsupported || alternateCore < 0 || batch->cancelled()) break;
+                        core = alternateCore;
+                        built = alternateBuilt;
+                        request = alternateRequest;
+                        sourceFingerprint = alternateFingerprint;
+                        record.error.clear();
+                        record.report.clear();
+                        record.build_id.clear();
+                        record.status = NekoGui::TestResultStatus::Untested;
+                        record.generated_config_digest = QString::fromLatin1(built->Fingerprint());
                     }
-                    if (record.build_id.isEmpty() && core >= 0) record.build_id = core_manager->Identity(core);
-                    if (!external.empty()) {
-                        QSemaphore stopped;
-                        runOnUiThread([&] {
-                            for (const auto &process : external) process->Kill();
-                            external.clear();
-                            stopped.release();
-                        }, DS_cores);
-                        stopped.acquire();
-                    }
-                    if (built) RemoveCoreHelperFiles(built->extRs);
                     QSemaphore saved;
                     runOnUiThread([&] {
                         auto profile = NekoGui::profileManager->GetProfile(id);
                         if (guard && profile == original) {
                             const auto nowResolution = NekoGui::ResolveCore(profile, NekoGui::PreferredCore());
                             const bool stale = speedtest_batch != batch || profile->bean->ToJsonBytes() != beanSnapshot || preference_revisions.value(id) != preferenceRevision ||
-                                               (core >= 0 && test_fingerprint(profile, core, mode) != sourceFingerprint) ||
+                                               (core >= 0 && test_fingerprint(profile, core, mode, record.parameters) != sourceFingerprint) ||
                                                (processGeneration && core_manager->Generation(core) != processGeneration) ||
                                                (task.forcedCore < 0 && nowResolution.targetCore != core);
                             if (batch->cancelled()) record.status = NekoGui::TestResultStatus::Cancelled;
@@ -307,6 +361,7 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
             MW_show_log(QString("Batch test error: %1").arg(error.what()));
         } catch (...) { MW_show_log("Batch test error"); }
         runOnUiThread([this, guard, batch] {
+            --core_background_jobs;
             if (speedtest_batch == batch) speedtest_batch.reset();
             if (guard) refresh_core_controls();
         }, this);
@@ -317,7 +372,8 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
 void MainWindow::speedtest_current() {
 #ifndef NKR_NO_GRPC
     const auto session = core_session;
-    if (!session || core_switch_busy) {
+    if (NekoGui::dataStore->prepare_exit) return;
+    if (!session || core_switch_busy || !session->instance->ready || !session->instance->alive || !session->externalHealthy->load()) {
         core_notice_message(tr("Connect a node before testing the current connection."));
         return;
     }
@@ -326,14 +382,23 @@ void MainWindow::speedtest_current() {
     const auto url = NekoGui::dataStore->test_latency_url;
     const int timeout = qBound(1000, NekoGui::dataStore->test_latency_timeout, 60000);
     const auto identity = core_manager->Identity(session->instance->core);
-    runOnNewThread([this, session, url, timeout, identity] {
+    if (current_test_cancel) current_test_cancel->store(true);
+    const auto cancelled = std::make_shared<std::atomic_bool>(false);
+    current_test_cancel = cancelled;
+    const QPointer<MainWindow> guard(this);
+    ++core_background_jobs;
+    runOnNewThread([this, guard, session, url, timeout, identity, cancelled] {
         libcore::TestReq request;
         request.set_mode(libcore::UrlTest);
         request.set_timeout(timeout);
         request.set_url(url.toStdString()); // No config: use this daemon's active saved session.
         bool ok = false;
-        const auto response = session->instance->client->Test(&ok, request);
-        runOnUiThread([this, session, response, ok, identity, url, timeout] {
+        auto client = session->instance->client->CreateTestClient();
+        const auto response = client->Test(&ok, request, cancelled.get());
+        runOnUiThread([this, guard, session, response, ok, identity, url, timeout, cancelled] {
+            if (!guard) return;
+            --core_background_jobs;
+            if (current_test_cancel == cancelled) current_test_cancel.reset();
             NekoGui::ProfileTestResult record;
             record.core = session->instance->core;
             record.scope = "current";
@@ -345,16 +410,20 @@ void MainWindow::speedtest_current() {
             record.status = !ok ? NekoGui::TestResultStatus::CoreError
                             : response.error().empty() ? NekoGui::TestResultStatus::Success
                             : response.failure_category() == libcore::FailureRemote ? NekoGui::TestResultStatus::ConnectionFailure
+                            : (response.failure_category() == libcore::FailureUnsupported || response.failure_category() == libcore::FailureConfig)
+                                  ? NekoGui::TestResultStatus::Unsupported
                             : NekoGui::TestResultStatus::CoreError;
             if (core_session != session || session->generation != core_manager->Generation(record.core)) record.status = NekoGui::TestResultStatus::Stale;
+            if (cancelled->load()) record.status = NekoGui::TestResultStatus::Cancelled;
             if (NekoGui::profileManager->GetProfile(session->profile->id) == session->profile) {
                 session->profile->RecordTestResult(record);
                 session->profile->Save();
             }
-            if (record.status == NekoGui::TestResultStatus::Stale) return;
+            if (record.status == NekoGui::TestResultStatus::Stale || record.status == NekoGui::TestResultStatus::Cancelled || NekoGui::dataStore->prepare_exit) return;
             last_test_time = QTime::currentTime();
             ui->label_running->setText(tr("Current connection: %1 · %2")
-                                          .arg(record.status == NekoGui::TestResultStatus::Success ? QString("%1 ms").arg(record.latency_ms) : tr("Test failed"),
+                                          .arg(record.status == NekoGui::TestResultStatus::Success ? QString("%1 ms").arg(record.latency_ms)
+                                                   : record.status == NekoGui::TestResultStatus::Unsupported ? tr("不适用") : tr("Test failed"),
                                                NekoGui_sys::CoreManager::Name(record.core)));
             if (!record.error.isEmpty()) MW_show_log(record.error);
         }, this);
@@ -363,6 +432,9 @@ void MainWindow::speedtest_current() {
 }
 
 void MainWindow::stop_core_daemon() {
+    // Called from an exit worker while Qt still processes completion callbacks.
+    // Do not destroy clients/processes until all captured test jobs have drained.
+    while (core_background_jobs.load() > 0) QThread::msleep(10);
     if (core_manager) core_manager->Shutdown();
 }
 

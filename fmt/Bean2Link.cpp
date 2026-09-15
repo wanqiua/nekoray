@@ -2,6 +2,7 @@
 #include "fmt/includes.h"
 
 #include <QUrlQuery>
+#include <QJsonDocument>
 
 namespace NekoGui_fmt {
     QString SocksHttpBean::ToShareLink() {
@@ -221,25 +222,38 @@ namespace NekoGui_fmt {
             if (!q.isEmpty()) url.setQuery(q);
             if (!name.isEmpty()) url.setFragment(name);
         } else if (proxy_type == proxy_Hysteria2) {
+            // The standard URI has no portable representation for these
+            // settings. Keep their exact values in a complete Nekoray share.
+            if (bbrProfile != "standard" || (!obfsType.isEmpty() && obfsType != "salamander") ||
+                (obfsType.isEmpty() && !obfsPassword.isEmpty()) ||
+                geckoMinPacketSize != 512 || geckoMaxPacketSize != 1200 || disableChromeParrot ||
+                !hopIntervalMin.isEmpty() || !hopIntervalMax.isEmpty() || !hopPort.isEmpty() || hopInterval != 10 ||
+                uploadMbps != 0 || downloadMbps != 0 || streamReceiveWindow != 0 || connectionReceiveWindow != 0 ||
+                disableMtuDiscovery || !alpn.isEmpty() || !caText.isEmpty() || disableSni || forceExternal ||
+                !authPayload.isEmpty() || !custom_config.isEmpty() || !custom_outbound.isEmpty()) {
+                auto state = ToJson();
+                // An explicit empty value means standard, while a missing
+                // value loads the constructor's standard default.
+                state["bbrProfile"] = bbrProfile;
+                url.setScheme("nekoray");
+                url.setHost("hysteria2");
+                url.setFragment(QString::fromLatin1(QJsonDocument(state).toJson(QJsonDocument::Compact)
+                                                       .toBase64(QByteArray::Base64UrlEncoding)), QUrl::DecodedMode);
+                return url.toString(QUrl::FullyEncoded);
+            }
             url.setScheme("hy2");
             url.setHost(serverAddress);
             url.setPort(serverPort);
-            if (password.contains(":")) {
-                url.setUserName(SubStrBefore(password, ":"));
-                url.setPassword(SubStrAfter(password, ":"));
-            } else {
-                url.setUserName(password);
-            }
+            url.setUserName(password, QUrl::DecodedMode);
             QUrlQuery q;
             if (!obfsPassword.isEmpty()) {
                 q.addQueryItem("obfs", "salamander");
-                q.addQueryItem("obfs-password", obfsPassword);
+                q.addQueryItem("obfs-password", QString::fromLatin1(QUrl::toPercentEncoding(obfsPassword)));
             }
-            if (!hopPort.trimmed().isEmpty()) q.addQueryItem("mport", hopPort);
             if (allowInsecure) q.addQueryItem("insecure", "1");
             if (!sni.isEmpty()) q.addQueryItem("sni", sni);
             if (!q.isEmpty()) url.setQuery(q);
-            if (!name.isEmpty()) url.setFragment(name);
+            if (!name.isEmpty()) url.setFragment(name, QUrl::DecodedMode);
         }
         return url.toString(QUrl::FullyEncoded);
     }

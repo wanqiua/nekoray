@@ -97,6 +97,28 @@ namespace NekoGui {
             if (settings->core_ray_freedom_domainStrategy == "UseIPv6") return "ipv6_only";
             return {};
         }
+
+        QJsonObject XrayDnsAddress(const QString &address) {
+            QJsonObject server{{"address", address}};
+            // Xray's UDP server uses separate address/port fields. Passing a
+            // sing-box UDP URL as its address instead tries to resolve the
+            // literal string "udp://host:port" as a hostname.
+            const bool udpUrl = address.startsWith("udp://", Qt::CaseInsensitive);
+            if (udpUrl || (!address.contains("://") && !IsIpAddress(address) && address != "localhost")) {
+                const auto url = QUrl(udpUrl ? address : "udp://" + address);
+                if (url.isValid() && !url.host().isEmpty() && (udpUrl || url.port() > 0)) {
+                    server["address"] = url.host();
+                    server["port"] = url.port(53);
+                }
+            }
+            return server;
+        }
+
+        QString DnsServerHost(const QString &address) {
+            if (IsIpAddress(address)) return address;
+            const auto url = QUrl(address.contains("://") ? address : "udp://" + address);
+            return url.isValid() && !url.host().isEmpty() ? url.host() : address;
+        }
     } // namespace
 
     BuildConfigContext CaptureBuildConfigContext(int targetCore, bool externalTun) {
@@ -144,6 +166,7 @@ namespace NekoGui {
                           {"vpn", settings->spmode_vpn}, {"external_tun", externalTun},
                           {"hook", QString::fromLatin1(QCryptographicHash::hash(hookSource, QCryptographicHash::Sha256).toHex())}};
         if (!forTest) {
+            input["system_proxy"] = settings->spmode_system_proxy;
             input["tun_proxy_port"] = tunProxyPort;
             input["tun_process_paths"] = QList2QJsonArray(tunBypassProcessPaths);
         }
@@ -384,8 +407,7 @@ namespace NekoGui {
 
         // Chain ent traffic stat
         if (!status->forTest && ents.length() > 1) {
-            status->ent->traffic_data->id = status->ent->id;
-            status->ent->traffic_data->tag = chainTagOut.toStdString();
+            status->result->trafficBindings.push_back({status->ent->traffic_data, status->ent->id, chainTagOut.toStdString()});
             status->result->outboundStats += status->ent->traffic_data;
         }
 
@@ -555,16 +577,15 @@ namespace NekoGui {
         QJsonArray dnsServers;
 
         // Remote or FakeDNS
-        QJsonObject dnsServerRemote;
-        dnsServerRemote["address"] = dataStore->routing->remote_dns;
+        auto dnsServerRemote = XrayDnsAddress(dataStore->routing->remote_dns);
         dnsServerRemote["domains"] = QList2QJsonArray<QString>(status->domainListDNSRemote);
         dnsServerRemote["queryStrategy"] = dataStore->routing->remote_dns_strategy;
         if (!status->forTest) dnsServers += dnsServerRemote;
 
         // Direct
         auto directDnsAddress = dataStore->routing->direct_dns;
-        if (directDnsAddress.contains("://")) {
-            auto directDnsIp = SubStrBefore(SubStrAfter(directDnsAddress, "://"), "/");
+        if (directDnsAddress != "localhost") {
+            const auto directDnsIp = DnsServerHost(directDnsAddress);
             if (IsIpAddress(directDnsIp)) {
                 status->routingRules.push_front(QJsonObject{
                     {"type", "field"},
@@ -574,22 +595,14 @@ namespace NekoGui {
             } else {
                 status->routingRules.push_front(QJsonObject{
                     {"type", "field"},
-                    {"domain", QJsonArray{directDnsIp}},
+                    {"domain", QJsonArray{"full:" + directDnsIp}},
                     {"outboundTag", "direct"},
                 });
             }
-        } else if (directDnsAddress != "localhost") {
-            status->routingRules.push_front(QJsonObject{
-                {"type", "field"},
-                {"ip", QJsonArray{directDnsAddress}},
-                {"outboundTag", "direct"},
-            });
         }
-        QJsonObject directObj{
-            {"address", directDnsAddress.replace("https://", "https+local://")},
-            {"queryStrategy", dataStore->routing->direct_dns_strategy},
-            {"domains", QList2QJsonArray<QString>(status->domainListDNSDirect)},
-        };
+        auto directObj = XrayDnsAddress(directDnsAddress.replace("https://", "https+local://"));
+        directObj["queryStrategy"] = dataStore->routing->direct_dns_strategy;
+        directObj["domains"] = QList2QJsonArray<QString>(status->domainListDNSDirect);
         if (dataStore->routing->dns_final_out == "bypass") {
             dnsServers.prepend(directObj);
         } else {
@@ -900,8 +913,7 @@ namespace NekoGui {
             // outbound misc
             outbound["tag"] = tagOut;
             if (!status->forTest) {
-                ent->traffic_data->id = ent->id;
-                ent->traffic_data->tag = tagOut.toStdString();
+                status->result->trafficBindings.push_back({ent->traffic_data, ent->id, tagOut.toStdString()});
                 status->result->outboundStats += ent->traffic_data;
             }
 
@@ -935,6 +947,22 @@ namespace NekoGui {
             if (status->IsSingBox()) {
                 // apply domain_strategy
                 outbound["domain_strategy"] = dataStore->routing->outbound_domain_strategy;
+                // In sing-box 1.14 an explicit resolver bypasses DNS rules.
+                // Preserve the GUI's node-domain -> direct-DNS intent instead
+                // of letting the legacy adapter pin every node to dns-local.
+                // Raw DNS/configuration and direct DNS-service dialers retain
+                // their own resolver semantics.
+                const auto server = outbound["server"].toString();
+                if (thisExternalStat == 0 && !server.isEmpty() && !IsIpAddress(server) &&
+                    dynamic_cast<NekoGui_fmt::CustomBean *>(ent->bean.get()) == nullptr &&
+                    !dataStore->routing->use_dns_object && ent->bean->custom_outbound.trimmed().isEmpty() &&
+                    ent->bean->custom_config.trimmed().isEmpty() && status->ent->bean->custom_config.trimmed().isEmpty()) {
+                    auto strategy = dataStore->routing->outbound_domain_strategy;
+                    if (strategy.isEmpty()) strategy = dataStore->routing->direct_dns_strategy;
+                    QJsonObject resolver{{"server", "dns-direct"}};
+                    if (!strategy.isEmpty()) resolver["strategy"] = strategy;
+                    outbound["domain_resolver"] = resolver;
+                }
                 // apply mux
                 if (!muxApplied && needMux) {
                     auto muxObj = QJsonObject{
@@ -1129,19 +1157,20 @@ namespace NekoGui {
         // Direct
         auto directDNSAddress = dataStore->routing->direct_dns;
         if (directDNSAddress == "localhost") directDNSAddress = BOX_UNDERLYING_DNS_EXPORT;
-        if (!status->forTest) {
-            QJsonObject directObj{
-                {"tag", "dns-direct"},
-                {"address_resolver", "dns-local"},
-                {"strategy", dataStore->routing->direct_dns_strategy},
-                {"address", directDNSAddress.replace("+local://", "://")},
-                {"detour", "direct"},
-            };
-            if (dataStore->routing->dns_final_out == "bypass") {
-                dnsServers.prepend(directObj);
-            } else {
-                dnsServers.append(directObj);
-            }
+        // Node-domain rules also exist in probes. Keep their resolver instead
+        // of emitting references to a missing dns-direct server or silently
+        // replacing the user's configured DNS with the bootstrap resolver.
+        QJsonObject directObj{
+            {"tag", "dns-direct"},
+            {"address_resolver", "dns-local"},
+            {"strategy", dataStore->routing->direct_dns_strategy},
+            {"address", directDNSAddress.replace("+local://", "://")},
+            {"detour", "direct"},
+        };
+        if (dataStore->routing->dns_final_out == "bypass") {
+            dnsServers.prepend(directObj);
+        } else {
+            dnsServers.append(directObj);
         }
 
         // block
@@ -1365,6 +1394,19 @@ namespace NekoGui {
         result->error = ConvertStrategies(dataStore, CoreType::SING_BOX);
         if (!result->error.isEmpty()) return result;
 
+        const bool wasInternal = context.sourceCore == CoreType::SING_BOX && dataStore->vpn_internal_tun;
+        const auto processes = SplitLinesSkipSharp(dataStore->vpn_rule_process.trimmed());
+        const auto cidrs = SplitLinesSkipSharp(dataStore->vpn_rule_cidr.trimmed());
+        const auto domainStrategy = dataStore->routing->domain_strategy.trimmed();
+        // FakeIP is restored to a domain before sing-box evaluates IP ranges.
+        // Resolving it here would change AsIs/remote-resolution semantics;
+        // accepting it unresolved can bypass the external TUN scope instead.
+        if (!wasInternal && dataStore->fake_dns && !cidrs.isEmpty() &&
+            (domainStrategy.isEmpty() || domainStrategy == "AsIs" || domainStrategy == "as_is")) {
+            result->error = QObject::tr("当前设置下，FakeIP 不能与 TUN 的 IP 范围同时使用。请关闭 FakeIP（FakeDNS），或清空 IP 范围并改用进程范围；原 TUN 状态已保留。");
+            return result;
+        }
+
         QStringList processPaths;
         for (const auto &path: context.tunBypassProcessPaths) {
             if (!path.isEmpty()) processPaths += QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
@@ -1420,12 +1462,7 @@ namespace NekoGui {
         dns["rules"] = dnsRules;
 
         QJsonArray routeRules{
-            QJsonObject{{"process_path", QList2QJsonArray(processPaths)}, {"outbound", "direct"}},
-            QJsonObject{{"port", QJsonArray{53}}, {"outbound", "dns-out"}},
-            QJsonObject{{"protocol", QJsonArray{"dns"}}, {"outbound", "dns-out"}}};
-        const bool wasInternal = context.sourceCore == CoreType::SING_BOX && dataStore->vpn_internal_tun;
-        const auto processes = SplitLinesSkipSharp(dataStore->vpn_rule_process);
-        const auto cidrs = SplitLinesSkipSharp(dataStore->vpn_rule_cidr);
+            QJsonObject{{"process_path", QList2QJsonArray(processPaths)}, {"outbound", "direct"}}};
         QJsonArray tunMatches;
         if (!processes.isEmpty()) tunMatches += QJsonObject{{"process_name", QList2QJsonArray(processes)}};
         if (!cidrs.isEmpty()) tunMatches += QJsonObject{{"ip_cidr", QList2QJsonArray(cidrs)}};
@@ -1444,6 +1481,13 @@ namespace NekoGui {
                     routeRules += rule;
                 }
             }
+        }
+        // DNS and FakeIP must respect the same external TUN scope as other
+        // traffic. Otherwise an excluded application's DNS still goes through
+        // the proxy, even with an empty whitelist (which means bypass all).
+        if (!bypassAll) {
+            routeRules += QJsonObject{{"port", QJsonArray{53}}, {"outbound", "dns-out"}};
+            routeRules += QJsonObject{{"protocol", QJsonArray{"dns"}}, {"outbound", "dns-out"}};
         }
         auto addRule = [&](const QString &list, bool ip, const QString &outbound) {
             auto rule = SingBoxRule(SplitLinesSkipSharp(list), ip);

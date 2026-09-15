@@ -17,11 +17,13 @@ namespace NekoGui_ConfigItem {
         QString name;
         void *ptr;
         itemType type;
+        bool preserve_empty_string;
 
-        configItem(QString n, void *p, itemType t) {
+        configItem(QString n, void *p, itemType t, bool preserveEmptyString = false) {
             name = std::move(n);
             ptr = p;
             type = t;
+            preserve_empty_string = preserveEmptyString;
         }
     };
 

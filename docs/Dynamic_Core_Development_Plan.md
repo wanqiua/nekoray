@@ -1,4 +1,4 @@
-复核后的开发计划，2026-09-13。适用当前 Nekoray 3.26 二开版本、Matsuri Xray 1.8.4 和 sing-box 1.14.0，首版验收平台为当前便携包面向的 Windows 10/11 x64。技术事实见[评估报告](C:/Users/zqf/Documents/aaa/nekoray/docs/SingBox_Features_and_Dynamic_Core_Assessment.md)。本轮交付文档修订，业务代码和用户配置未修改。
+复核后的开发计划，2026-09-13。适用当前 Nekoray 3.26 二开版本、Matsuri Xray 1.8.4 和 sing-box 1.14.0，首版验收平台为当前便携包面向的 Windows 10/11 x64。技术事实见[评估报告](SingBox_Features_and_Dynamic_Core_Assessment.md)。本文件保留开发前确定的范围与验收要求；当前实现和验证状态见[实现说明](Dynamic_Core_Implementation.md)。
 
 **首个完整版本的目标：用户照常导入、双击连接和批量测试；只在有需要时手动选核。选核、测试、订阅更新、失败恢复及基础 TUN 切换一起交付。**
 
@@ -54,7 +54,7 @@
 
 历史延迟不能冒充切换后内核的结果。取消、编辑节点、修改偏好、删除、订阅替换和内核重启都应使相应旧任务失效，进程代次用于拒绝过期回调。批测不启停正在使用的主代理；正常切换也不应为退出整个核心进程而连带杀掉另一批测试。
 
-已有两个相关入口必须在首版一起改：当前[测试结果写回](C:/Users/zqf/Documents/aaa/nekoray/ui/mainwindow_grpc.cpp:225) 把所有错误统一写成负延迟，[移除不可用](C:/Users/zqf/Documents/aaa/nekoray/ui/mainwindow.cpp:1482) 则按负延迟删除。这种表示不能直接承载新增的能力错误和内核错误。
+已有两个相关入口必须在首版一起改：当前[测试结果写回](../ui/mainwindow_grpc.cpp) 把所有错误统一写成负延迟，[移除不可用](../ui/mainwindow.cpp) 则按负延迟删除。这种表示不能直接承载新增的能力错误和内核错误。
 
 **订阅和设置的兼容要求**
 
@@ -62,7 +62,7 @@
 
 匹配优先使用订阅提供的稳定标识；没有稳定标识时，只对同组内唯一、可靠的协议身份进行匹配。显示名称、列表位置和可复用的本地数字 ID 都不能单独充当身份。重复、重排或仅改名的同一节点应尽量保留偏好；无法可靠对应的条目回到自动，并在更新摘要说明，不把别人的偏好套过去。
 
-现有[订阅更新](C:/Users/zqf/Documents/aaa/nekoray/sub/GroupUpdater.cpp:602) 在某分支解析前删除节点，另有[首个匹配项判断](C:/Users/zqf/Documents/aaa/nekoray/sub/GroupUpdater.cpp:654) 使用 deleted_index > 0，需要修正。现有[匹配键](C:/Users/zqf/Documents/aaa/nekoray/db/ProfileFilter.cpp:5) 取自 bean；新偏好不能直接加入这个匹配键。
+现有[订阅更新](../sub/GroupUpdater.cpp) 在某分支解析前删除节点，另有[首个匹配项判断](../sub/GroupUpdater.cpp) 使用 deleted_index > 0，需要修正。现有[匹配键](../db/ProfileFilter.cpp) 取自 bean；新偏好不能直接加入这个匹配键。
 
 两套旧核心设置和路由文件均保留。公共监听端口、代理模式、用户配置的证书验证策略和可共同表达的 DNS/分流规则，应形成当前操作的一份明确上下文；切核不能无意采用另一套旧文件中的不同设置。内核专属 JSON、脚本和规则保留归属，不能静默丢弃或放宽安全字段。不能保持语义的组合应在停止旧代理前提示具体设置冲突。
 

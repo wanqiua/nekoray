@@ -39,6 +39,17 @@ namespace NekoGui_fmt {
         int hopInterval = 10;
         QString hopPort = "";
 
+        // Hysteria 2. Keep the legacy integer hopInterval (seconds) and
+        // hopPort text intact; optional Go durations override the interval.
+        QString bbrProfile = "standard";
+        // Empty preserves legacy behavior: a password enables Salamander.
+        QString obfsType;
+        int geckoMinPacketSize = 512;
+        int geckoMaxPacketSize = 1200;
+        bool disableChromeParrot = false;
+        QString hopIntervalMin;
+        QString hopIntervalMax;
+
         // TUIC
 
         QString uuid = "";
@@ -79,6 +90,13 @@ namespace NekoGui_fmt {
                     uploadMbps = 0;
                     downloadMbps = 0;
                     _add(new configItem("password", &password, itemType::string));
+                    _add(new configItem("bbrProfile", &bbrProfile, itemType::string, true));
+                    _add(new configItem("obfsType", &obfsType, itemType::string));
+                    _add(new configItem("geckoMinPacketSize", &geckoMinPacketSize, itemType::integer));
+                    _add(new configItem("geckoMaxPacketSize", &geckoMaxPacketSize, itemType::integer));
+                    _add(new configItem("disableChromeParrot", &disableChromeParrot, itemType::boolean));
+                    _add(new configItem("hopIntervalMin", &hopIntervalMin, itemType::string));
+                    _add(new configItem("hopIntervalMax", &hopIntervalMax, itemType::string));
                 }
             } else if (proxy_type == proxy_TUIC) {
                 _add(new configItem("uuid", &uuid, itemType::string));
@@ -129,9 +147,22 @@ namespace NekoGui_fmt {
 
         ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat, const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
+        // New validation applies only to Hysteria 2; HY1/TUIC keep their
+        // existing behavior. Port lists accept 443, 2000-3000 and 2000:3000.
+        [[nodiscard]] QString Validate() const;
+        [[nodiscard]] QStringList Hysteria2ServerPorts(QString *error = nullptr) const;
+        [[nodiscard]] QString Hysteria2ObfsType() const;
+        [[nodiscard]] QString Hysteria2HopInterval() const;
+        [[nodiscard]] QString Hysteria2ExternalCompatibilityError() const;
+
+        CoreObjOutboundBuildResult BuildCoreObjV2Ray(const NekoGui::DataStore *runtimeSettings = nullptr) override {
+            if (proxy_type == proxy_Hysteria2) return {{}, QObject::tr("Xray 不支持 Hysteria2，请使用 sing-box")};
+            return AbstractBean::BuildCoreObjV2Ray(runtimeSettings);
+        }
+
         CoreObjOutboundBuildResult BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
-        bool TryParseLink(const QString &link);
+        bool TryParseLink(const QString &link, QString *error = nullptr);
 
         QString ToShareLink() override;
     };
