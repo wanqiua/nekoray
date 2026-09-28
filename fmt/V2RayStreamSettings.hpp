@@ -2,6 +2,8 @@
 
 #include "AbstractBean.hpp"
 
+#include <QRegularExpression>
+
 namespace NekoGui_fmt {
     class V2rayStreamSettings : public JsonStore {
     public:
@@ -19,6 +21,9 @@ namespace NekoGui_fmt {
         QString certificate = "";
         QString utlsFingerprint = "";
         bool allow_insecure = false;
+        // SHA-256 of the server certificate DER (share link "pcs"). A pin
+        // replaces CA validation; not used with REALITY.
+        QString certificate_pin = "";
         // ws early data
         QString ws_early_data_name = "";
         int ws_early_data_length = 0;
@@ -47,6 +52,38 @@ namespace NekoGui_fmt {
             _add(new configItem("sid", &reality_sid, itemType::string));
             _add(new configItem("spx", &reality_spx, itemType::string));
             _add(new configItem("mux_s", &multiplex_status, itemType::integer));
+            _add(new configItem("pcs", &certificate_pin, itemType::string));
+        }
+
+        // Accepts 64 hex digits or 32 colon-separated bytes; "," separates
+        // several pins. Outputs lowercase hex without colons.
+        static bool ParseCertificatePins(const QString &text, QStringList *pins = nullptr) {
+            static const QRegularExpression pattern("^(?:[0-9a-fA-F]{64}|(?:[0-9a-fA-F]{2}:){31}[0-9a-fA-F]{2})$");
+            QStringList result;
+            if (!text.trimmed().isEmpty()) {
+                for (const auto &entry: text.split(',')) {
+                    const auto pin = entry.trimmed();
+                    if (!pattern.match(pin).hasMatch()) return false;
+                    result << QString(pin).remove(':').toLower();
+                }
+            }
+            if (pins != nullptr) *pins = result;
+            return true;
+        }
+
+        [[nodiscard]] QStringList CertificatePins() const {
+            QStringList pins;
+            return ParseCertificatePins(certificate_pin, &pins) ? pins : QStringList{};
+        }
+
+        [[nodiscard]] QString CertificatePinError(bool singBox) const {
+            if (certificate_pin.trimmed().isEmpty()) return {};
+            if (security != "tls") return QObject::tr("证书 SHA-256 需要启用 TLS");
+            if (!reality_pbk.trimmed().isEmpty()) return QObject::tr("REALITY 不使用证书 SHA-256，请清空该字段");
+            if (!ParseCertificatePins(certificate_pin))
+                return QObject::tr("证书 SHA-256 必须是 64 位十六进制，多个值用逗号分隔");
+            if (singBox) return QObject::tr("sing-box 暂不支持此协议的证书 SHA-256 校验，请使用 Xray");
+            return {};
         }
 
         QJsonObject BuildStreamSettingsV2Ray(const NekoGui::DataStore *runtimeSettings = nullptr);

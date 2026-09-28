@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(nekoray VERSION 0.1 LANGUAGES CXX)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/nekoray_version.txt" NEKORAY_PRODUCT_VERSION)
+project(nekoray VERSION ${NEKORAY_PRODUCT_VERSION} LANGUAGES CXX)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 

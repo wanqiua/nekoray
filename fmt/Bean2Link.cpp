@@ -41,6 +41,7 @@ namespace NekoGui_fmt {
         if (!stream->sni.isEmpty()) query.addQueryItem("sni", stream->sni);
         if (!stream->alpn.isEmpty()) query.addQueryItem("alpn", stream->alpn);
         if (stream->allow_insecure) query.addQueryItem("allowInsecure", "1");
+        if (!stream->certificate_pin.isEmpty()) query.addQueryItem("pcs", stream->certificate_pin);
         if (!stream->utlsFingerprint.isEmpty()) query.addQueryItem("fp", stream->utlsFingerprint);
 
         if (security == "reality") {
@@ -118,6 +119,8 @@ namespace NekoGui_fmt {
                 {"tls", stream->security == "tls" ? "tls" : ""},
                 {"sni", stream->sni},
             };
+            if (stream->allow_insecure) N["allowInsecure"] = true;
+            if (!stream->certificate_pin.isEmpty()) N["pcs"] = stream->certificate_pin;
             return "vmess://" + QJsonObject2QString(N, true).toUtf8().toBase64();
         } else {
             // ducksoft format
@@ -138,6 +141,7 @@ namespace NekoGui_fmt {
 
             if (!stream->sni.isEmpty()) query.addQueryItem("sni", stream->sni);
             if (stream->allow_insecure) query.addQueryItem("allowInsecure", "1");
+            if (!stream->certificate_pin.isEmpty()) query.addQueryItem("pcs", stream->certificate_pin);
             if (stream->utlsFingerprint.isEmpty()) {
                 query.addQueryItem("fp", NekoGui::dataStore->utlsFingerprint);
             } else {

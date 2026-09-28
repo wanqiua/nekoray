@@ -288,6 +288,42 @@ private slots:
         ProfileEditorCoreRegression::EditorExposesBothCoreOptions(window);
     }
 
+    void certificatePinEditorRoundTrip() {
+        using ProfileEditorCoreRegression::Control;
+        SubscriptionMetadataRegression::GroupFixture fixture;
+        auto node = NekoGui::ProfileManager::NewProxyEntity("vless");
+        node->bean->serverAddress = "example.invalid";
+        node->bean->serverPort = 443;
+        node->TrojanVLESSBean()->password = "75f2a015-3611-4c7f-bf7c-a948276b179f";
+        node->TrojanVLESSBean()->stream->security = "tls";
+        QVERIFY(NekoGui::profileManager->AddProfile(node, fixture.group->id));
+        {
+            DialogEditProfile editor("", node->id, window);
+            Control<QLineEdit>(&editor, "certificate_pin")->setText(QString("AA:").repeated(31) + "AA");
+            QVERIFY(Control<QRadioButton>(&editor, "edit_core_xray")->isEnabled());
+            QVERIFY(!Control<QRadioButton>(&editor, "edit_core_singbox")->isEnabled());
+            QVERIFY(node->TrojanVLESSBean()->stream->certificate_pin.isEmpty());
+            const auto screenshotDirectory = qEnvironmentVariable("NEKORAY_TEST_SCREENSHOT_DIR");
+            if (!screenshotDirectory.isEmpty()) {
+                editor.show();
+                QTest::qWait(50);
+                QVERIFY(QDir().mkpath(screenshotDirectory));
+                QVERIFY(editor.grab().save(screenshotDirectory + "/certificate-pin-editor.png"));
+            }
+            editor.accept();
+            QCOMPARE(editor.result(), int(QDialog::Accepted));
+        }
+        QCOMPARE(node->TrojanVLESSBean()->stream->certificate_pin, QString(64, 'a'));
+        {
+            DialogEditProfile editor("", node->id, window);
+            QCOMPARE(Control<QLineEdit>(&editor, "certificate_pin")->text(), QString(64, 'a'));
+            Control<QLineEdit>(&editor, "certificate_pin")->clear();
+            QVERIFY(Control<QRadioButton>(&editor, "edit_core_singbox")->isEnabled());
+            editor.reject();
+        }
+        QCOMPARE(node->TrojanVLESSBean()->stream->certificate_pin, QString(64, 'a'));
+    }
+
     void groupTypeAndDraftCancellation() {
         auto draft = NekoGui::ProfileManager::NewGroup();
         DialogEditGroup dialog(draft, window);

@@ -93,7 +93,7 @@ EditQUIC::EditQUIC(QWidget *parent) : QWidget(parent), ui(new Ui::EditQUIC) {
     form->addRow(tr("最大跳端口间隔"), hy2HopIntervalMax);
     hy2CertificatePin = line("hy2CertificatePin");
     hy2CertificatePin->setPlaceholderText(tr("留空使用常规证书设置"));
-    hy2CertificatePin->setToolTip(tr("服务端证书的 SHA-256，64 位十六进制。填写后始终检查指纹，包括启用跳过证书验证时。"));
+    hy2CertificatePin->setToolTip(tr("服务端证书的 SHA-256，64 位十六进制。填写后按指纹验证证书，自签名证书无需勾选“不检查服务器证书”；指纹不符时始终拒绝连接。"));
     form->addRow(tr("证书 SHA-256"), hy2CertificatePin);
 
     hy2Advanced->setWidget(advanced);

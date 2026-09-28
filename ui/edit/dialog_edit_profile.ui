@@ -475,6 +475,21 @@ security (QUIC)</string>
         </property>
         <layout class="QVBoxLayout" name="verticalLayout_2">
          <item>
+          <layout class="QHBoxLayout" name="certificatePinLayout">
+           <item>
+            <widget class="QLabel" name="certificate_pin_label">
+             <property name="text"><string>证书 SHA-256</string></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="MyLineEdit" name="certificate_pin">
+             <property name="placeholderText"><string>可选，64 位十六进制；多个值用逗号分隔</string></property>
+             <property name="toolTip"><string>填写后仅按指纹验证，指纹不符仍拒绝连接。当前仅支持 Xray；服务器须只发送一张证书，发送完整证书链时会校验失败。REALITY 不使用此字段。</string></property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
           <layout class="QHBoxLayout" name="horizontalLayout">
            <item>
             <widget class="QCheckBox" name="insecure">

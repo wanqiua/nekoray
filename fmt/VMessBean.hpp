@@ -25,7 +25,7 @@ namespace NekoGui_fmt {
 
         CoreObjOutboundBuildResult BuildCoreObjSingBox(const NekoGui::DataStore *runtimeSettings = nullptr) override;
 
-        bool TryParseLink(const QString &link);
+        bool TryParseLink(const QString &link, QString *error = nullptr);
 
         QString ToShareLink() override;
     };

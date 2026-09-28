@@ -154,6 +154,8 @@ namespace NekoGui_fmt {
             outbound["password"] = password;
         }
 
+        result.error = stream->CertificatePinError(true);
+        if (!result.error.isEmpty()) return result;
         stream->BuildStreamSettingsSingBox(&outbound, runtimeSettings);
         result.outbound = outbound;
         return result;
@@ -187,6 +189,8 @@ namespace NekoGui_fmt {
             outbound["plugin_opts"] = SubStrAfter(plugin, ";");
         }
 
+        result.error = stream->CertificatePinError(true);
+        if (!result.error.isEmpty()) return result;
         stream->BuildStreamSettingsSingBox(&outbound, runtimeSettings);
         result.outbound = outbound;
         return result;
@@ -204,6 +208,8 @@ namespace NekoGui_fmt {
             {"security", security},
         };
 
+        result.error = stream->CertificatePinError(true);
+        if (!result.error.isEmpty()) return result;
         stream->BuildStreamSettingsSingBox(&outbound, runtimeSettings);
         result.outbound = outbound;
         return result;
@@ -227,6 +233,8 @@ namespace NekoGui_fmt {
             outbound["password"] = password;
         }
 
+        result.error = stream->CertificatePinError(true);
+        if (!result.error.isEmpty()) return result;
         stream->BuildStreamSettingsSingBox(&outbound, runtimeSettings);
         result.outbound = outbound;
         return result;

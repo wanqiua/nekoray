@@ -106,7 +106,13 @@ func newPinnedHysteria2(ctx context.Context, router adapter.Router, logger log.C
 	if options.TLS == nil || !options.TLS.Enabled {
 		return nil, C.ErrTLSRequired
 	}
-	tlsConfig, err := tls.NewClient(ctx, logger, options.Server, *options.TLS)
+	// The pin replaces CA-chain and hostname validation, as Clash Meta's
+	// fingerprint and sing-box's certificate_public_key_sha256 do. Subscriptions
+	// pin self-signed servers with insecure=false. Setting it here, not on the
+	// built config, also drops the disable_sni VerifyConnection check.
+	tlsOptions := *options.TLS
+	tlsOptions.Insecure = true
+	tlsConfig, err := tls.NewClient(ctx, logger, options.Server, tlsOptions)
 	if err != nil {
 		return nil, err
 	}

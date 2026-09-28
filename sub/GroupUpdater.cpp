@@ -143,21 +143,21 @@ namespace NekoGui_sub {
         // VMess
         if (str.startsWith("vmess://")) {
             ent = NekoGui::ProfileManager::NewProxyEntity("vmess");
-            auto ok = ent->VMessBean()->TryParseLink(str);
+            auto ok = ent->VMessBean()->TryParseLink(str, error);
             if (!ok) return false;
         }
 
         // VLESS
         if (str.startsWith("vless://")) {
             ent = NekoGui::ProfileManager::NewProxyEntity("vless");
-            auto ok = ent->TrojanVLESSBean()->TryParseLink(str);
+            auto ok = ent->TrojanVLESSBean()->TryParseLink(str, error);
             if (!ok) return false;
         }
 
         // Trojan
         if (str.startsWith("trojan://")) {
             ent = NekoGui::ProfileManager::NewProxyEntity("trojan");
-            auto ok = ent->TrojanVLESSBean()->TryParseLink(str);
+            auto ok = ent->TrojanVLESSBean()->TryParseLink(str, error);
             if (!ok) return false;
         }
 
@@ -273,6 +273,22 @@ namespace NekoGui_sub {
             auto child = n[key];
             if (child.IsDefined()) return child;
         }
+        return {};
+    }
+
+    // Clash Meta's "fingerprint" pins the server certificate, unlike
+    // client-fingerprint. Browser names there are a common misuse that was
+    // ignored before; keep ignoring them. Returns an error for a bad pin.
+    QString ClashCertificatePin(const YAML::Node &proxy, NekoGui_fmt::V2rayStreamSettings *stream) {
+        const auto text = Node2QString(proxy["fingerprint"]).trimmed();
+        if (text.isEmpty() || stream->security != "tls" || !stream->reality_pbk.trimmed().isEmpty()) return {};
+        static const QStringList browsers{"chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized"};
+        if (browsers.contains(text.toLower())) return {};
+        QStringList pins;
+        if (!NekoGui_fmt::V2rayStreamSettings::ParseCertificatePins(text, &pins)) {
+            return QObject::tr("fingerprint 必须是 64 位十六进制的证书 SHA-256");
+        }
+        stream->certificate_pin = pins.join(",");
         return {};
     }
 
@@ -468,6 +484,11 @@ namespace NekoGui_sub {
                         bean->stream->reality_pbk = Node2QString(reality["public-key"]);
                         bean->stream->reality_sid = Node2QString(reality["short-id"]);
                     }
+                    const auto pinError = ClashCertificatePin(proxy, bean->stream.get());
+                    if (!pinError.isEmpty()) {
+                        Reject(bean->DisplayType() + " " + pinError);
+                        continue;
+                    }
                 } else if (type == "vmess") {
                     needFix = true;
                     auto bean = ent->VMessBean();
@@ -542,6 +563,11 @@ namespace NekoGui_sub {
                             bean->stream->path = Node2QString(path);
                             break;
                         }
+                    }
+                    const auto pinError = ClashCertificatePin(proxy, bean->stream.get());
+                    if (!pinError.isEmpty()) {
+                        Reject(bean->DisplayType() + " " + pinError);
+                        continue;
                     }
                 } else if (type == "anytls") {
                     auto bean = ent->AnyTLSBean();

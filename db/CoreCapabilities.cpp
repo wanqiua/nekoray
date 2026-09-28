@@ -235,6 +235,7 @@ namespace NekoGui {
                 if (stream->reality_sid.contains(',')) return QObject::tr("REALITY 客户端需要一个明确的 short ID");
                 if (NonEmpty(stream->certificate)) return QObject::tr("REALITY 与自定义证书验证不能在此适配器中同时应用");
             }
+            if (const auto error = stream->CertificatePinError(box); !error.isEmpty()) return error;
             if (network == "ws" && stream->ws_early_data_length > 0 && !box &&
                 stream->ws_early_data_name != "Sec-WebSocket-Protocol") {
                 return QObject::tr("当前 Xray 的 WS early data 仅支持 Sec-WebSocket-Protocol header");

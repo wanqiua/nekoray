@@ -302,6 +302,7 @@ void DialogEditProfile::typeSelected(const QString &newType) {
             ui->utlsFingerprint->setCurrentText(stream->utlsFingerprint);
         }
         ui->insecure->setChecked(stream->allow_insecure);
+        ui->certificate_pin->setText(stream->certificate_pin);
         ui->header_type->setCurrentText(stream->header_type);
         ui->ws_early_data_name->setText(stream->ws_early_data_name);
         ui->ws_early_data_length->setText(Int2String(stream->ws_early_data_length));
@@ -410,6 +411,9 @@ void DialogEditProfile::typeSelected(const QString &newType) {
     ui->multiplex->setVisible(multiplex);
     ui->multiplex_l->setVisible(multiplex);
     ui->stream_box->setVisible(stream != nullptr);
+    const bool certificatePinProtocol = type == "vmess" || type == "vless" || type == "trojan";
+    ui->certificate_pin->setVisible(certificatePinProtocol);
+    ui->certificate_pin_label->setVisible(certificatePinProtocol);
 
     // 载入 type 之后，有些类型没有右边的设置
     auto rightNoBox = (ui->stream_box->isHidden() && ui->network_box->isHidden() && ui->security_box->isHidden());
@@ -446,6 +450,12 @@ bool DialogEditProfile::onEnd() {
     ent->bean->custom_config = CACHE.custom_config;
 
     QString invalid;
+    if (const auto stream = GetStreamSettings(ent->bean.get()); stream && !stream->certificate_pin.trimmed().isEmpty()) {
+        if (!NekoGui_fmt::V2rayStreamSettings::ParseCertificatePins(stream->certificate_pin))
+            invalid = tr("证书 SHA-256 必须是 64 位十六进制，多个值用逗号分隔");
+        else if (stream->security != "tls" || !stream->reality_pbk.trimmed().isEmpty())
+            invalid = tr("证书 SHA-256 仅适用于普通 TLS，请启用 TLS 或清空该字段；REALITY 不使用此字段");
+    }
     if (auto bean = dynamic_cast<NekoGui_fmt::AnyTLSBean *>(ent->bean.get())) invalid = bean->Validate();
     if (auto bean = dynamic_cast<NekoGui_fmt::SnellBean *>(ent->bean.get())) invalid = bean->Validate();
     if (auto bean = dynamic_cast<NekoGui_fmt::QUICBean *>(ent->bean.get())) invalid = bean->Validate();
@@ -469,6 +479,9 @@ void DialogEditProfile::save_stream_fields(NekoGui_fmt::AbstractBean *bean) cons
         stream->alpn = ui->alpn->text();
         stream->utlsFingerprint = ui->utlsFingerprint->currentText();
         stream->allow_insecure = ui->insecure->isChecked();
+        QStringList pins;
+        stream->certificate_pin = NekoGui_fmt::V2rayStreamSettings::ParseCertificatePins(ui->certificate_pin->text(), &pins)
+                                  ? pins.join(",") : ui->certificate_pin->text();
         stream->header_type = ui->header_type->currentText();
         stream->ws_early_data_name = ui->ws_early_data_name->text();
         stream->ws_early_data_length = ui->ws_early_data_length->text().toInt();
@@ -622,6 +635,7 @@ void DialogEditProfile::on_apply_to_group_clicked() {
         apply_to_group_ui[ui->path] = new FloatCheckBox(ui->path, this);
         apply_to_group_ui[ui->utlsFingerprint] = new FloatCheckBox(ui->utlsFingerprint, this);
         apply_to_group_ui[ui->insecure] = new FloatCheckBox(ui->insecure, this);
+        apply_to_group_ui[ui->certificate_pin] = new FloatCheckBox(ui->certificate_pin, this);
         apply_to_group_ui[ui->certificate_edit] = new FloatCheckBox(ui->certificate_edit, this);
         apply_to_group_ui[ui->custom_config_edit] = new FloatCheckBox(ui->custom_config_edit, this);
         apply_to_group_ui[ui->custom_outbound_edit] = new FloatCheckBox(ui->custom_outbound_edit, this);
@@ -688,6 +702,8 @@ void DialogEditProfile::do_apply_to_group(const std::shared_ptr<NekoGui::Group> 
         copyStream(&stream->allow_insecure);
     } else if (key == ui->certificate_edit) {
         copyStream(&stream->certificate);
+    } else if (key == ui->certificate_pin) {
+        copyStream(&stream->certificate_pin);
     } else if (key == ui->custom_config_edit) {
         copyBean(&ent->bean->custom_config);
     } else if (key == ui->custom_outbound_edit) {

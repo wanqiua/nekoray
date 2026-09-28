@@ -5,6 +5,8 @@
 #include <QUrlQuery>
 
 #define MAKE_SETTINGS_STREAM_SETTINGS                         \
+    result.error = stream->CertificatePinError(false);        \
+    if (!result.error.isEmpty()) return result;               \
     outbound["settings"] = settings;                          \
     auto streamSettings = stream->BuildStreamSettingsV2Ray(runtimeSettings); \
     outbound["streamSettings"] = streamSettings;
@@ -65,6 +67,15 @@ namespace NekoGui_fmt {
             if (!sni.trimmed().isEmpty()) tls["serverName"] = sni;
             if (reality_pbk.trimmed().isEmpty()) {
                 if (allow_insecure || (runtimeSettings != nullptr ? runtimeSettings : NekoGui::dataStore)->skip_cert) tls["allowInsecure"] = true;
+                // The pin replaces CA validation, and Xray still checks it with
+                // allowInsecure. Xray 1.8.4 hashes the whole chain the server
+                // sends, which equals the leaf pin when only the leaf is sent.
+                if (const auto pins = CertificatePins(); !pins.isEmpty()) {
+                    QJsonArray chainPins;
+                    for (const auto &pin: pins) chainPins.append(QString::fromLatin1(QByteArray::fromHex(pin.toLatin1()).toBase64()));
+                    tls["pinnedPeerCertificateChainSha256"] = chainPins;
+                    tls["allowInsecure"] = true;
+                }
                 if (!alpn.trimmed().isEmpty()) tls["alpn"] = QList2QJsonArray(alpn.split(","));
                 if (!certificate.trimmed().isEmpty()) {
                     tls["disableSystemRoot"] = true;

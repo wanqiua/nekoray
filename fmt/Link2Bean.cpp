@@ -186,6 +186,32 @@ namespace {
         bean->FromJson(state);
         return true;
     }
+
+    // allowInsecure (v2rayN), insecure and allow_insecure are aliases and the
+    // first present wins. Only 1/true enable it, so allowInsecure=0 stays off.
+    bool streamLinkInsecure(const QUrlQuery &query) {
+        for (const auto &key: {"allowInsecure", "insecure", "allow_insecure"}) {
+            if (!query.hasQueryItem(key)) continue;
+            const auto value = query.queryItemValue(key).trimmed().toLower();
+            return value == "1" || value == "true";
+        }
+        return false;
+    }
+
+    // "pcs" pins the server certificate. REALITY authenticates with its own
+    // public key, so a pin there is ignored.
+    bool streamLinkCertificatePin(const QUrlQuery &query, NekoGui_fmt::V2rayStreamSettings *stream, QString *error) {
+        stream->certificate_pin.clear();
+        const auto text = query.queryItemValue("pcs");
+        if (text.isEmpty() || stream->security != "tls" || !stream->reality_pbk.trimmed().isEmpty()) return true;
+        QStringList pins;
+        if (!NekoGui_fmt::V2rayStreamSettings::ParseCertificatePins(text, &pins)) {
+            if (error != nullptr) *error = QObject::tr("pcs 必须是 64 位十六进制的证书 SHA-256，多个值用逗号分隔");
+            return false;
+        }
+        stream->certificate_pin = pins.join(",");
+        return true;
+    }
 }
 
 namespace NekoGui_fmt {
@@ -227,7 +253,7 @@ namespace NekoGui_fmt {
         return !serverAddress.isEmpty();
     }
 
-    bool TrojanVLESSBean::TryParseLink(const QString &link) {
+    bool TrojanVLESSBean::TryParseLink(const QString &link, QString *error) {
         auto url = QUrl(link);
         if (!url.isValid()) return false;
         auto query = GetQuery(url);
@@ -256,10 +282,11 @@ namespace NekoGui_fmt {
         if (!sni1.isEmpty()) stream->sni = sni1;
         if (!sni2.isEmpty()) stream->sni = sni2;
         stream->alpn = GetQueryValue(query, "alpn");
-        if (!query.queryItemValue("allowInsecure").isEmpty()) stream->allow_insecure = true;
+        stream->allow_insecure = streamLinkInsecure(query);
         stream->reality_pbk = GetQueryValue(query, "pbk", "");
         stream->reality_sid = GetQueryValue(query, "sid", "");
         stream->reality_spx = GetQueryValue(query, "spx", "");
+        if (!streamLinkCertificatePin(query, stream.get(), error)) return false;
         stream->utlsFingerprint = GetQueryValue(query, "fp", "");
         if (stream->utlsFingerprint.isEmpty()) {
             stream->utlsFingerprint = NekoGui::dataStore->utlsFingerprint;
@@ -330,7 +357,7 @@ namespace NekoGui_fmt {
         return !(serverAddress.isEmpty() || method.isEmpty() || password.isEmpty());
     }
 
-    bool VMessBean::TryParseLink(const QString &link) {
+    bool VMessBean::TryParseLink(const QString &link, QString *error) {
         // V2RayN Format
         auto linkN = DecodeB64IfValid(SubStrAfter(link, "vmess://"));
         if (!linkN.isEmpty()) {
@@ -358,6 +385,12 @@ namespace NekoGui_fmt {
             if (!scy.isEmpty()) security = scy;
             // TLS (XTLS?)
             stream->security = objN["tls"].toString();
+            QUrlQuery tlsQuery;
+            for (const auto &key: {"allowInsecure", "insecure", "allow_insecure", "pcs"}) {
+                if (objN.contains(key)) tlsQuery.addQueryItem(key, objN[key].toVariant().toString());
+            }
+            stream->allow_insecure = streamLinkInsecure(tlsQuery);
+            if (!streamLinkCertificatePin(tlsQuery, stream.get(), error)) return false;
             // TODO quic & kcp
             return true;
         } else {
@@ -386,10 +419,11 @@ namespace NekoGui_fmt {
             auto sni2 = GetQueryValue(query, "peer");
             if (!sni1.isEmpty()) stream->sni = sni1;
             if (!sni2.isEmpty()) stream->sni = sni2;
-            if (!query.queryItemValue("allowInsecure").isEmpty()) stream->allow_insecure = true;
+            stream->allow_insecure = streamLinkInsecure(query);
             stream->reality_pbk = GetQueryValue(query, "pbk", "");
             stream->reality_sid = GetQueryValue(query, "sid", "");
             stream->reality_spx = GetQueryValue(query, "spx", "");
+            if (!streamLinkCertificatePin(query, stream.get(), error)) return false;
             stream->utlsFingerprint = GetQueryValue(query, "fp", "");
             if (stream->utlsFingerprint.isEmpty()) {
                 stream->utlsFingerprint = NekoGui::dataStore->utlsFingerprint;

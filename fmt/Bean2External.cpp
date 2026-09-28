@@ -258,7 +258,9 @@ namespace NekoGui_fmt {
             if (sni.isEmpty() && !IsIpAddress(serverAddress)) sniGen = serverAddress;
             tls["sni"] = sniGen;
             if (!pinSHA256.isEmpty()) tls["pinSHA256"] = Hysteria2CertificatePin();
-            if (allowInsecure) tls["insecure"] = true;
+            // Official Hysteria checks the pin after the CA chain, and insecure
+            // skips only the chain. Let a pin decide alone, as in nekobox_core.
+            if (allowInsecure || !pinSHA256.isEmpty()) tls["insecure"] = true;
             if (!caText.trimmed().isEmpty()) {
                 WriteTempFile("hysteria2_" + GetRandomString(10) + ".crt", caText.toUtf8());
                 QJsonArray certificate;

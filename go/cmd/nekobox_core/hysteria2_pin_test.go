@@ -15,7 +15,7 @@ import (
 )
 
 func TestHysteria2CertificatePin(t *testing.T) {
-	for _, variant := range []string{"trusted", "insecure", "colon", "gecko_hopping"} {
+	for _, variant := range []string{"trusted", "insecure", "colon", "gecko_hopping", "self_signed", "self_signed_no_sni"} {
 		t.Run(variant, func(t *testing.T) {
 			in, out := protocolPeerOptions(t, "hysteria2")
 			tls := out["tls"].(map[string]any)
@@ -42,8 +42,22 @@ func TestHysteria2CertificatePin(t *testing.T) {
 				out["hop_interval"], out["hop_interval_max"] = "5s", "6s"
 				out["bbr_profile"], out["disable_chrome_parrot"] = "conservative", true
 			}
-			out["tls_certificate_sha256"] = fingerprint
+			selfSigned := strings.HasPrefix(variant, "self_signed")
+			if selfSigned {
+				// Subscription shape: an untrusted self-signed server, a camouflage
+				// SNI absent from its certificate, and insecure=false.
+				tls["insecure"], tls["server_name"] = false, "www.apple.com"
+				tls["disable_sni"] = variant == "self_signed_no_sni"
+			}
 			startProtocolPeerCore(t, in, true)
+			if selfSigned {
+				expected := "certificate"
+				if variant == "self_signed_no_sni" {
+					expected = "" // ChromeParrot rejects the unpinned VerifyConnection check.
+				}
+				verifyProtocolPeerHTTPFailure(t, startProtocolPeerCore(t, out, false), expected)
+			}
+			out["tls_certificate_sha256"] = fingerprint
 			client := startProtocolPeerCore(t, out, false)
 			verifyProtocolPeerHTTP(t, client, 2)
 			verifyProtocolPeerUDP(t, client, 4096)

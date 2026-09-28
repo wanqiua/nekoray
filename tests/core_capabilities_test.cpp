@@ -8,6 +8,7 @@
 #include "db/CoreCapabilities.hpp"
 #include "db/Database.hpp"
 #include "fmt/includes.h"
+#include "sub/GroupUpdater.hpp"
 
 using namespace NekoGui;
 using namespace NekoGui_fmt;
@@ -42,6 +43,95 @@ class CoreCapabilitiesTest : public QObject {
     }
 
 private slots:
+    void certificatePinClashImport() {
+#ifdef NKR_NO_YAML
+        QSKIP("Clash import is disabled");
+#else
+        for (const auto &type: {"vless", "trojan", "vmess"}) {
+            for (const auto &value: {QString(64, 'a'), QString("chrome"), QString("not-a-pin")}) {
+                NekoGui_sub::RawUpdater updater;
+                updater.stage_only = true;
+                updater.updateClash(QString("proxies:\n  - name: pin fixture\n    type: %1\n    server: example.invalid\n    port: 443\n    uuid: 75f2a015-3611-4c7f-bf7c-a948276b179f\n    password: synthetic\n    tls: true\n    fingerprint: '%2'\n").arg(type, value));
+                if (value == "not-a-pin") {
+                    QCOMPARE(updater.rejected_count, 1);
+                    QVERIFY(updater.updated_order.isEmpty());
+                } else {
+                    QCOMPARE(updater.rejected_count, 0);
+                    QCOMPARE(updater.updated_order.size(), 1);
+                    QCOMPARE(GetStreamSettings(updater.updated_order.first()->bean.get())->certificate_pin,
+                             value == "chrome" ? QString() : value);
+                }
+            }
+        }
+#endif
+    }
+
+    void certificatePinParsingAndSharing() {
+        const QString pin(64, 'a');
+        QStringList pins;
+        QVERIFY(V2rayStreamSettings::ParseCertificatePins(QString("AA:").repeated(31) + "AA", &pins));
+        QCOMPARE(pins, QStringList{pin});
+        for (const auto &bad: {QString(63, 'a'), pin + ",", "zz" + pin, QString("aa:").repeated(32)})
+            QVERIFY(!V2rayStreamSettings::ParseCertificatePins(bad));
+        for (const auto &type: {"vless", "trojan", "vmess"}) {
+            for (const auto &value: {"1", "true", "0", "false"}) {
+                auto ent = node(type);
+                const auto link = QString("%1://75f2a015-3611-4c7f-bf7c-a948276b179f@example.invalid:443?security=tls&insecure=%2&pcs=%3").arg(type, value, pin);
+                QString error;
+                const bool ok = QString(type) == "vmess" ? ent->VMessBean()->TryParseLink(link, &error)
+                                                         : ent->TrojanVLESSBean()->TryParseLink(link, &error);
+                QVERIFY2(ok, qPrintable(error));
+                const auto stream = GetStreamSettings(ent->bean.get());
+                QCOMPARE(stream->allow_insecure, QString(value) == "1" || QString(value) == "true");
+                QCOMPARE(stream->certificate_pin, pin);
+                for (bool legacy: {false, true}) {
+                    dataStore->old_share_link_format = legacy;
+                    auto copy = node(type);
+                    const auto share = ent->bean->ToShareLink();
+                    QVERIFY(QString(type) == "vmess" ? copy->VMessBean()->TryParseLink(share, &error)
+                                                     : copy->TrojanVLESSBean()->TryParseLink(share, &error));
+                    QCOMPARE(GetStreamSettings(copy->bean.get())->certificate_pin, pin);
+                    QCOMPARE(GetStreamSettings(copy->bean.get())->allow_insecure, stream->allow_insecure);
+                }
+                const auto conflict = link + "&allowInsecure=0";
+                QVERIFY(QString(type) == "vmess" ? ent->VMessBean()->TryParseLink(conflict, &error)
+                                                 : ent->TrojanVLESSBean()->TryParseLink(conflict, &error));
+                QVERIFY(!stream->allow_insecure);
+                const auto malformed = QString(link).replace(pin, "bad-pin");
+                QVERIFY(!(QString(type) == "vmess" ? ent->VMessBean()->TryParseLink(malformed, &error)
+                                                   : ent->TrojanVLESSBean()->TryParseLink(malformed, &error)));
+                QVERIFY(error.contains("pcs"));
+            }
+        }
+    }
+
+    void certificatePinSelectsXrayAndRejectsInvalidSettings() {
+        for (const auto &type: {"vless", "trojan", "vmess"}) {
+            auto ent = node(type);
+            const auto stream = GetStreamSettings(ent->bean.get());
+            stream->security = "tls";
+            stream->certificate_pin = QString(64, 'a');
+            const auto resolution = ResolveCore(ent, CoreType::SING_BOX);
+            QVERIFY(resolution.xraySupported);
+            QVERIFY(!resolution.singBoxSupported);
+            QCOMPARE(resolution.targetCore, int(CoreType::V2RAY));
+            QVERIFY(!ent->bean->BuildCoreObjSingBox(dataStore).error.isEmpty());
+            const auto tls = ent->bean->BuildCoreObjV2Ray(dataStore).outbound["streamSettings"].toObject()["tlsSettings"].toObject();
+            QVERIFY(tls["allowInsecure"].toBool());
+            QCOMPARE(tls["pinnedPeerCertificateChainSha256"].toArray().first().toString(),
+                     QString::fromLatin1(QByteArray::fromHex(QByteArray(64, 'a')).toBase64()));
+            stream->certificate_pin = "invalid";
+            QCOMPARE(ResolveCore(ent, CoreType::SING_BOX).targetCore, -1);
+            QVERIFY(!ent->bean->BuildCoreObjV2Ray(dataStore).error.isEmpty());
+            stream->certificate_pin = QString(64, 'a');
+            stream->security = "";
+            QCOMPARE(ResolveCore(ent, CoreType::SING_BOX).targetCore, -1);
+            stream->security = "tls";
+            stream->reality_pbk = "synthetic-public-key";
+            QCOMPARE(ResolveCore(ent, CoreType::SING_BOX).targetCore, -1);
+        }
+    }
+
     void initTestCase() {
         originalSettings = dataStore;
         originalProfiles = profileManager;
