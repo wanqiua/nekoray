@@ -8,6 +8,7 @@
 #include "rpc/gRPC.h"
 #include "ui/widget/MessageBoxTimer.h"
 #include "SpeedtestBatch.hpp"
+#include "SpeedtestRetry.hpp"
 
 #include <QTimer>
 #include <QThread>
@@ -158,6 +159,13 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
     ++core_background_jobs;
     runOnNewThread([this, guard, work, mode, flags, batch, latencyURL, downloadURL, timeout, downloadTimeout] {
         try {
+            struct RetryIdentity {
+                int core = -1;
+                QString fingerprint;
+                QByteArray bean;
+                quint64 preferenceRevision = 0, generation = 0;
+            };
+            std::vector<RetryIdentity> retryIdentities(work.size());
             // This one queue is the total budget across both core families.
             batch->run([&] {
                 std::array<std::unique_ptr<TestClient>, 2> clients;
@@ -166,6 +174,8 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                     const auto task = work.at(index);
                     const auto original = task.profile;
                     const int id = original->id;
+                    const auto retry = retryIdentities.at(index);
+                    const bool rechecking = batch->retrying();
                     int core = -1;
                     quint64 preferenceRevision = 0, processGeneration = 0;
                     QString displayName, sourceFingerprint;
@@ -199,7 +209,7 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                             beanSnapshot = profile->bean->ToJsonBytes();
                             preferenceRevision = preference_revisions.value(id);
                             const auto resolution = NekoGui::ResolveCore(profile, NekoGui::PreferredCore());
-                            core = task.forcedCore >= 0 ? task.forcedCore : resolution.targetCore;
+                            core = rechecking ? retry.core : task.forcedCore >= 0 ? task.forcedCore : resolution.targetCore;
                             if (core < 0 || !resolution.Supports(core)) {
                                 record.status = NekoGui::TestResultStatus::Unsupported;
                                 record.error = core < 0 ? resolution.reason : core == 0 ? resolution.xrayReason : resolution.singBoxReason;
@@ -207,6 +217,15 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                                 auto context = NekoGui::CaptureBuildConfigContext(core, true);
                                 context.tunProxyPort = tun_proxy_port;
                                 sourceFingerprint = NekoGui::CoreTestInputDigest(profile, context, mode, latencyURL, timeout, downloadURL, downloadTimeout, record.parameters);
+                                if (rechecking && (beanSnapshot != retry.bean || sourceFingerprint != retry.fingerprint ||
+                                                   test_fingerprint(profile, core, mode, record.parameters) != retry.fingerprint || preferenceRevision != retry.preferenceRevision ||
+                                                   core_manager->Generation(core) != retry.generation ||
+                                                   (task.forcedCore < 0 && resolution.targetCore != core))) {
+                                    record.status = NekoGui::TestResultStatus::Stale;
+                                    record.error = tr("Node or test settings changed before the retry; result discarded.");
+                                    prepared.release();
+                                    return;
+                                }
                                 if (mode == libcore::TcpPing) {
                                     request.set_address(profile->bean->DisplayAddress().toStdString());
                                     record.generated_config_digest = NekoGui::CoreConfigDigest({{"address", profile->bean->DisplayAddress()}});
@@ -219,7 +238,7 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                                         record.error = built->error;
                                     } else {
                                         request.mutable_config()->set_core_config(QJsonObject2QString(built->coreConfig, true).toStdString());
-                                        if (task.forcedCore < 0 && resolution.Supports(1 - core)) {
+                                        if (!rechecking && task.forcedCore < 0 && resolution.Supports(1 - core)) {
                                             auto alternateContext = NekoGui::CaptureBuildConfigContext(1 - core, true);
                                             alternateContext.tunProxyPort = tun_proxy_port;
                                             alternateBuilt = NekoGui::BuildConfig(profile, true, false, alternateContext);
@@ -344,9 +363,20 @@ void MainWindow::speedtest_current_group(int mode, int coreOverride, bool compar
                                                (task.forcedCore < 0 && nowResolution.targetCore != core);
                             if (batch->cancelled()) record.status = NekoGui::TestResultStatus::Cancelled;
                             else if (stale) record.status = NekoGui::TestResultStatus::Stale;
-                            profile->RecordTestResult(record);
-                            if (!stale && !batch->cancelled() && !record.error.isEmpty())
+                            bool retryQueued = false;
+                            if (!rechecking && work.size() > 1 && !stale && ShouldRetryUrlTest(record)) {
+                                retryIdentities.at(index) = {core, sourceFingerprint, beanSnapshot, preferenceRevision, processGeneration};
+                                retryQueued = batch->retryLater(index);
+                            }
+                            // A first-pass failure awaiting confirmation is
+                            // history only, never a new deletion candidate.
+                            profile->RecordTestResult(record, retryQueued);
+                            if (retryQueued)
+                                MW_show_log(tr("[%1] temporary test failure; queued for a serial retry after the batch: %2").arg(displayName, record.error));
+                            else if (!stale && !batch->cancelled() && !record.error.isEmpty())
                                 MW_show_log(tr("[%1] test error: %2").arg(displayName, record.error));
+                            else if (rechecking && record.status == NekoGui::TestResultStatus::Success)
+                                MW_show_log(tr("[%1] serial retry succeeded: %2 ms").arg(displayName).arg(record.latency_ms));
                             refresh_test_validity(profile);
                             profile->Save();
                             refresh_proxy_list(id);

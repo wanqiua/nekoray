@@ -93,7 +93,14 @@ namespace NekoGui_fmt {
                 tls["publicKey"] = reality_pbk;
                 tls["shortId"] = reality_sid;
                 tls["spiderX"] = reality_spx;
-                if (utlsFingerprint.isEmpty()) tls["fingerprint"] = "chrome";
+                // Keep the automatic browser presets compatible with legacy
+                // REALITY servers. New Xray aliases select PQ ClientHellos
+                // that some deployed servers reject before authentication.
+                // Explicit versioned presets and ordinary TLS stay untouched.
+                if (utlsFingerprint.isEmpty() || utlsFingerprint == "chrome")
+                    tls["fingerprint"] = "hellochrome_120";
+                else if (utlsFingerprint == "firefox")
+                    tls["fingerprint"] = "hellofirefox_120";
                 streamSettings["realitySettings"] = tls;
                 streamSettings["security"] = "reality";
             }

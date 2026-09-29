@@ -354,6 +354,10 @@ For NekoBox, this rewrites the underlying(localhost) DNS in Tun Mode, normal mod
 <context>
     <name>DialogEditProfile</name>
     <message>
+        <source>For Xray REALITY, automatic chrome/firefox presets use compatible Chrome 120/Firefox 120 fingerprints. Explicit versioned presets are preserved.</source>
+        <translation>Xray REALITY 的自动 chrome/firefox 预设使用兼容的 Chrome 120/Firefox 120 指纹；明确指定的版本指纹保持不变。</translation>
+    </message>
+    <message>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
@@ -1328,7 +1332,19 @@ This needs to be run NekoBox with administrator privileges.</source>
     <message>
         <source>[%1] test error: %2</source>
         <translation>[%1] 测试错误: %2</translation>
-    </message>
+      </message>
+      <message>
+        <source>[%1] temporary test failure; queued for a serial retry after the batch: %2</source>
+        <translation>[%1] 本次测试暂时失败，将在批测结束后串行复测：%2</translation>
+      </message>
+      <message>
+        <source>[%1] serial retry succeeded: %2 ms</source>
+        <translation>[%1] 串行复测成功：%2 毫秒</translation>
+      </message>
+      <message>
+        <source>Node or test settings changed before the retry; result discarded.</source>
+        <translation>复测前节点或测试设置已改变，已丢弃旧结果。</translation>
+      </message>
     <message>
         <source>Clear</source>
         <translation>清除</translation>

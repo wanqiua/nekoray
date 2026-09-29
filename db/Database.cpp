@@ -279,7 +279,7 @@ namespace NekoGui {
         SyncTestResults();
     }
 
-    void ProxyEntity::RecordTestResult(const ProfileTestResult &input) {
+    void ProxyEntity::RecordTestResult(const ProfileTestResult &input, bool historyOnly) {
         MigrateLegacyTestResult();
         auto result = input;
         if (result.timestamp_ms <= 0) result.timestamp_ms = QDateTime::currentMSecsSinceEpoch();
@@ -287,7 +287,7 @@ namespace NekoGui {
         AppendTestHistory(test_results, object);
         // Cancellation/late replies are history, and must not erase a completed
         // result. The caller still decides whether its process generation is live.
-        if (result.status != TestResultStatus::Cancelled && result.status != TestResultStatus::Stale &&
+        if (!historyOnly && result.status != TestResultStatus::Cancelled && result.status != TestResultStatus::Stale &&
             result.status != TestResultStatus::Legacy && (result.core == 0 || result.core == 1)) {
             auto latest = test_results.value("latest").toObject();
             latest.insert(TestResultKey(result.core, result.scope, result.mode), object);

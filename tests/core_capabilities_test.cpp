@@ -43,6 +43,32 @@ class CoreCapabilitiesTest : public QObject {
     }
 
 private slots:
+    void realityAutomaticFingerprintsStayCompatible() {
+        auto ent = node("vless");
+        auto stream = GetStreamSettings(ent->bean.get());
+        stream->security = "tls";
+        stream->reality_pbk = "synthetic-public-key";
+        for (const auto &preset: {QString(), QString("chrome"), QString("firefox"), QString("hellochrome_131")}) {
+            stream->utlsFingerprint = preset;
+            const auto snapshot = ent->bean->ToJsonBytes();
+            for (bool forTest: {true, false}) {
+                auto built = BuildConfig(ent, forTest, !forTest, CaptureBuildConfigContext(CoreType::V2RAY, forTest));
+                QVERIFY2(built->error.isEmpty(), qPrintable(built->error));
+                auto reality = outbound(built->coreConfig)["streamSettings"].toObject()["realitySettings"].toObject();
+                QCOMPARE(reality["fingerprint"].toString(), preset.isEmpty() || preset == "chrome" ? QString("hellochrome_120") :
+                         preset == "firefox" ? QString("hellofirefox_120") : preset);
+            }
+            QCOMPARE(ent->bean->ToJsonBytes(), snapshot);
+        }
+        stream->utlsFingerprint = "chrome";
+        auto box = BuildConfig(ent, true, false, CaptureBuildConfigContext(CoreType::SING_BOX, true));
+        QVERIFY2(box->error.isEmpty(), qPrintable(box->error));
+        QCOMPARE(outbound(box->coreConfig)["tls"].toObject()["utls"].toObject()["fingerprint"].toString(), QString("chrome"));
+        stream->reality_pbk.clear();
+        auto ray = BuildConfig(ent, true, false, CaptureBuildConfigContext(CoreType::V2RAY, true));
+        QVERIFY2(ray->error.isEmpty(), qPrintable(ray->error));
+        QCOMPARE(outbound(ray->coreConfig)["streamSettings"].toObject()["tlsSettings"].toObject()["fingerprint"].toString(), QString("chrome"));
+    }
     void certificatePinClashImport() {
 #ifdef NKR_NO_YAML
         QSKIP("Clash import is disabled");

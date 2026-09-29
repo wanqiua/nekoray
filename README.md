@@ -4,6 +4,8 @@
 
 当前版本：**[0.2](https://github.com/wanqiua/nekoray/releases/tag/v0.2)**。内置 **[wanqiua/Xray-core](https://github.com/wanqiua/Xray-core) 26.3.27-matsuri.1** 和 **sing-box 1.14.0**。
 
+2026-09-29 修订：已修复 URL 批测临时失败误判和 Xray REALITY 自动指纹兼容问题，版本号继续使用 **0.2**。请重新下载下方更新后的便携包。
+
 ## 下载与使用
 
 - [Windows x64 便携包](https://github.com/wanqiua/nekoray/releases/download/v0.2/NekoRay_BY_WanQiu-0.2-windows-x64.zip)

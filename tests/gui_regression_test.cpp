@@ -34,6 +34,7 @@
 #include "ui/mainwindow.h"
 #include "ui/CoreRuntime.hpp"
 #include "ui/SpeedtestBatch.hpp"
+#include "ui/SpeedtestRetry.hpp"
 #include "ui/UrlImportDialog.hpp"
 #include "ui/dialog_basic_settings.h"
 #include "ui/edit/dialog_edit_group.h"
@@ -63,6 +64,8 @@ public:
     int delay;
     QByteArray body;
     int status;
+    int stallRequests = 0;
+    std::function<void(int)> onRequest;
 
     FixtureServer(int delayMS = 0, int responseStatus = 204, QByteArray responseBody = {}, ProbeCount *count = nullptr)
         : delay(delayMS), body(std::move(responseBody)), status(responseStatus) {
@@ -86,12 +89,13 @@ public:
                             continue;
                         }
                         ++requests;
+                        if (onRequest) onRequest(requests);
                         if (!requestMarker.isEmpty() && request.toLower().contains(requestMarker.toLower())) ++matchingRequests;
                         if (count != nullptr) {
                             socket->setProperty("counted", true);
                             count->peak = qMax(count->peak, ++count->active);
                         }
-                        if (delay < 0) return; // Stall until the caller cancels.
+                        if (delay < 0 || requests <= stallRequests) return; // Stall until the caller cancels.
                         const QPointer<QTcpSocket> guarded(socket);
                         QTimer::singleShot(delay, socket, [this, guarded, count] {
                             if (!guarded || guarded->state() != QAbstractSocket::ConnectedState) return;
@@ -667,6 +671,133 @@ private slots:
         }
         QVERIFY2(count.peak >= 3, "GUI batch requests were serialized");
         qInfo("Real GUI/core batch peak concurrency: %d", count.peak);
+    }
+
+    void transientBatchFailuresAreConfirmedSerially() {
+        using namespace NekoGui;
+        FixtureServer transient(30), permanent(-1), rejected(0, 503), healthy(40);
+        transient.stallRequests = 1;
+        auto recovered = addNode(transient.serverPort());
+        auto failed = addNode(permanent.serverPort());
+        auto httpError = addNode(rejected.serverPort());
+        auto passed = addNode(healthy.serverPort());
+        bool retryWasSerial = false, firstFailureWasHistoryOnly = false;
+        transient.onRequest = [&](int attempt) {
+            if (attempt != 2) return;
+            retryWasSerial = speedtest_batch && speedtest_batch->retrying() && healthy.requests == 1 && rejected.requests == 1;
+            firstFailureWasHistoryOnly = recovered->LastTestResult(PreferredCore()).status == TestResultStatus::Untested;
+        };
+        startBatch();
+        QTRY_VERIFY_WITH_TIMEOUT(!speedtest_batch, 10000);
+        QVERIFY(retryWasSerial);
+        QVERIFY(firstFailureWasHistoryOnly);
+        QVERIFY(recovered->latency > 0);
+        QVERIFY(passed->latency > 0);
+        QCOMPARE(failed->latency, -1);
+        QCOMPARE(httpError->latency, -1);
+        QCOMPARE(transient.requests, 2);
+        QCOMPARE(permanent.requests, 2);
+        QCOMPARE(rejected.requests, 1);
+        QCOMPARE(healthy.requests, 1);
+        const auto history = recovered->test_results["history"].toArray();
+        QCOMPARE(history.size(), 2);
+        QCOMPARE(history[0].toObject()["status"].toString(), QString("connection_failure"));
+        QCOMPARE(history[1].toObject()["status"].toString(), QString("success"));
+    }
+
+    void changedNodeIsNotRetriedFromAnOldBatch() {
+        FixtureServer transient(-1), other(1500);
+        auto edited = addNode(transient.serverPort());
+        addNode(other.serverPort());
+        // The first failure is recorded before the slower first-pass item
+        // finishes, leaving a deterministic window to edit the failed node.
+        const QScopedValueRollback<int> concurrency(NekoGui::dataStore->test_concurrent, 1);
+        other.onRequest = [&](int) { edited->bean->name = "edited before confirmation"; };
+        startBatch();
+        QTRY_VERIFY_WITH_TIMEOUT(!speedtest_batch, 10000);
+        QCOMPARE(transient.requests, 1);
+        QCOMPARE(edited->latency, 0);
+    }
+
+    void permanentErrorsDoNotQualifyForTransportRetry() {
+        NekoGui::ProfileTestResult result;
+        result.mode = "url";
+        result.status = NekoGui::TestResultStatus::ConnectionFailure;
+        for (const auto &error: {"test endpoint returned HTTP 503", "x509: certificate has expired", "authentication failed"}) {
+            result.error = error;
+            QVERIFY(!ShouldRetryUrlTest(result));
+        }
+        result.error = "Get URL: EOF";
+        QVERIFY(ShouldRetryUrlTest(result));
+        result.status = NekoGui::TestResultStatus::CoreError;
+        QVERIFY(!ShouldRetryUrlTest(result));
+    }
+
+    void changedTestURLPreventsQueuedRetry() {
+        FixtureServer transient(-1), other(1500);
+        auto profile = addNode(transient.serverPort());
+        addNode(other.serverPort());
+        const QScopedValueRollback<int> concurrency(NekoGui::dataStore->test_concurrent, 1);
+        const QScopedValueRollback<QString> savedURL(NekoGui::dataStore->test_latency_url);
+        other.onRequest = [&](int) { NekoGui::dataStore->test_latency_url = "http://127.0.0.1:1/changed-url"; };
+        startBatch();
+        QTRY_VERIFY_WITH_TIMEOUT(!speedtest_batch, 7000);
+        QCOMPARE(transient.requests, 1);
+        QCOMPARE(other.requests, 1);
+        QCOMPARE(profile->latency, 0);
+    }
+
+    void cancellationDuringConfirmationKeepsPreviousResults() {
+        ProbeCount count;
+        FixtureServer first(-1, 204, {}, &count), second(-1, 204, {}, &count);
+        auto a = addNode(first.serverPort()), b = addNode(second.serverPort());
+        const auto stopOnRetry = [](int attempt) {
+            if (attempt == 2 && speedtest_batch) speedtest_batch->cancel();
+        };
+        first.onRequest = stopOnRetry;
+        second.onRequest = stopOnRetry;
+        startBatch();
+        QTRY_VERIFY_WITH_TIMEOUT(!speedtest_batch, 7000);
+        QTRY_COMPARE_WITH_TIMEOUT(count.active, 0, 3000);
+        QCOMPARE(first.requests + second.requests, 3);
+        QCOMPARE(a->latency, 0);
+        QCOMPARE(b->latency, 0);
+    }
+
+    // Optional end-to-end check of an explicitly supplied local profile.
+    // Only an in-memory copy is used; credentials/config are never logged.
+    void optionalLocalRealityProbe() {
+        const auto path = qEnvironmentVariable("NEKORAY_DIAGNOSTIC_PROFILE");
+        if (path.isEmpty()) QSKIP("local profile probe not requested");
+        QFile input(path);
+        QVERIFY(input.open(QIODevice::ReadOnly));
+        auto object = QJsonDocument::fromJson(input.readAll()).object();
+        QCOMPARE(object["type"].toString(), QString("vless"));
+        auto profile = NekoGui::ProfileManager::NewProxyEntity("vless");
+        profile->FromJson(object);
+        auto stream = NekoGui_fmt::GetStreamSettings(profile->bean.get());
+        QVERIFY(stream && !stream->reality_pbk.isEmpty());
+        for (const auto &preset: {QString("chrome"), QString("firefox")}) {
+            stream->utlsFingerprint = preset;
+            auto built = NekoGui::BuildConfig(profile, true, false, NekoGui::CaptureBuildConfigContext(NekoGui::PreferredCore(), true));
+            QVERIFY(built->error.isEmpty());
+            libcore::TestReq request;
+            request.set_mode(libcore::UrlTest);
+            request.set_timeout(10000);
+            request.set_url("http://cp.cloudflare.com/");
+            request.mutable_config()->set_core_config(QJsonObject2QString(built->coreConfig, true).toStdString());
+            auto probe = std::async(std::launch::async, [request] {
+                bool ok = false;
+                auto result = NekoGui_rpc::defaultClient->Test(&ok, request);
+                return std::make_pair(ok, result);
+            });
+            QTRY_VERIFY_WITH_TIMEOUT(probe.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready, 20000);
+            const auto result = probe.get();
+            QVERIFY(result.first);
+            QVERIFY2(result.second.error().empty(), "local REALITY probe failed (details intentionally omitted)");
+            QVERIFY(result.second.ms() > 0);
+            qInfo("Local REALITY %s: %d ms", qPrintable(preset), result.second.ms());
+        }
     }
 
     void cancellationStopsInflightRequestsAndKeepsOldResults() {

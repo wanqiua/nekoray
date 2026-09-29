@@ -2,6 +2,13 @@
 
 本版将 Xray 升级到 **wanqiua/Xray-core 26.3.27-matsuri.1**，保留旧协议兼容并接入新版传输和证书指纹。sing-box 保持 **1.14.0**。
 
+## 0.2 fix1：URL 批测与 REALITY 修复
+
+- URL 批测的超时、EOF、连接重置等临时失败会在首轮全部完成后串行复测一次，仍使用同一内核和原超时。首轮错误保留在历史中，复测结束前不会据此新增“不可用”删除候选；配置、证书、HTTP 状态错误不重试。
+- 取消会停止排队及正在执行的复测；节点、测试设置或内核进程改变后不执行旧配置的复测。完整测速和单节点测试保持原有行为。
+- Xray REALITY 的空指纹和 `chrome` 自动预设生成 `hellochrome_120`，`firefox` 自动预设生成 `hellofirefox_120`，避免新版自动指纹与部分已有 REALITY 服务端握手不兼容。明确指定的版本指纹、普通 TLS 和 sing-box 保持原值；编辑器提示与导出配置可查看实际行为。节点存储与分享参数不被改写。
+- GitHub 修复包继续使用 `NekoRay_BY_WanQiu-0.2-windows-x64.zip`，在原 `v0.2` 发布中替换旧附件；先前本地验证包的 fix1 是修订标识，不是新版本号。GUI 版本仍为 0.2，两个内核与初版 0.2 相同；本次修复在 GUI 调度和配置生成层完成。
+
 ## 升级与修复
 
 - Xray 固定到 `codex/matsuri-compat` 分支提交 `e9639bd461dcff1c91e26a71a8752fa42d51268d`，基于官方 v26.3.27。保留 RC4-MD5、旧 Shadowsocks 加密、内置 SIP003 插件、旧 HTTP/2 / QUIC / mKCP 和显式 `allowInsecure`。

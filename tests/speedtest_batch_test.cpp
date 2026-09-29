@@ -67,6 +67,36 @@ int main() {
         int calls = 0;
         zero.run([&] { int index; while (zero.next(index)) ++calls; });
         require(calls == 3, "zero concurrency must still make progress");
+        SpeedtestBatch retries(12, 4);
+        std::atomic<int> firstDone{0}, retryDone{0}, retryActive{0};
+        retries.run([&] {
+            int index;
+            while (retries.next(index)) {
+                if (!retries.retrying()) {
+                    if (index % 2 == 0) require(retries.retryLater(index), "retry not queued");
+                    std::this_thread::sleep_for(5ms);
+                    ++firstDone;
+                } else {
+                    require(firstDone == 12, "retry overlapped first pass");
+                    require(index % 2 == 0, "retried a healthy item");
+                    require(++retryActive == 1, "retry pass was not serial");
+                    require(!retries.retryLater(index), "retry loop was allowed");
+                    ++retryDone;
+                    --retryActive;
+                }
+            }
+        });
+        require(retryDone == 6, "missing retry results");
+        SpeedtestBatch cancelRetry(8, 4);
+        int retried = 0;
+        cancelRetry.run([&] {
+            int index;
+            while (cancelRetry.next(index)) {
+                if (!cancelRetry.retrying()) cancelRetry.retryLater(index);
+                else { ++retried; cancelRetry.cancel(); }
+            }
+        });
+        require(retried == 1, "cancellation kept dispatching retries");
         std::cout << "Cancellation, failure cleanup and invalid concurrency: passed\n";
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

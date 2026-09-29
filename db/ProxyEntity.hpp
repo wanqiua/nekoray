@@ -45,7 +45,7 @@ namespace NekoGui {
 
         ProxyEntity(NekoGui_fmt::AbstractBean *bean, const QString &type_);
 
-        void RecordTestResult(const ProfileTestResult &result);
+        void RecordTestResult(const ProfileTestResult &result, bool historyOnly = false);
 
         [[nodiscard]] ProfileTestResult LastTestResult(int core, const QString &scope = "next",
                                                       const QString &mode = "url") const;

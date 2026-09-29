@@ -114,6 +114,7 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
         for (const auto &fingerprint: Preset::Xray::UtlsFingerPrint + Preset::SingBox::UtlsFingerPrint) {
             if (ui->utlsFingerprint->findText(fingerprint) < 0) ui->utlsFingerprint->addItem(fingerprint);
         }
+        ui->utlsFingerprint->setToolTip(tr("For Xray REALITY, automatic chrome/firefox presets use compatible Chrome 120/Firefox 120 fingerprints. Explicit versioned presets are preserved."));
         // 传输设置 是否可见
         int networkBoxVisible = 0;
         for (auto label: ui->network_box->findChildren<QLabel *>()) {
