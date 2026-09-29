@@ -110,12 +110,13 @@ func TestWindowsProtectedUDPLoopback(t *testing.T) {
 
 func TestWindowsProtectedUDPStillBindsNonLoopback(t *testing.T) {
 	upstream := syntheticTunRoute(t)
-	dialer := &windowsProtectedSystemDialer{SystemDialer: &internet.DefaultSystemDialer{}}
 	for _, address := range []string{"203.0.113.33", "2001:db8::33"} {
 		t.Run(address, func(t *testing.T) {
 			// Creating this unconnected socket sends no packet to the reserved
 			// address. Read back both Windows interface options before closing.
-			connection, err := dialer.Dial(context.Background(), nil, xnet.UDPDestination(xnet.ParseAddress(address), 19090), nil)
+			// Exercise the installed dialer: modern Xray routes UDP through
+			// dialer controllers, rather than the global listener controllers.
+			connection, err := internet.DialSystem(context.Background(), xnet.UDPDestination(xnet.ParseAddress(address), 19090), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -124,9 +125,9 @@ func TestWindowsProtectedUDPStillBindsNonLoopback(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected an unconnected UDP socket, got %T", connection)
 			}
-			udp, ok := packet.Conn.(*net.UDPConn)
+			udp, ok := packet.PacketConn.(*net.UDPConn)
 			if !ok {
-				t.Fatalf("expected a system UDP socket, got %T", packet.Conn)
+				t.Fatalf("expected a system UDP socket, got %T", packet.PacketConn)
 			}
 			raw, err := udp.SyscallConn()
 			if err != nil {
@@ -157,6 +158,8 @@ type recordingSystemDialer struct {
 	error       error
 }
 
+func (d *recordingSystemDialer) DestIpAddress() net.IP { return nil }
+
 func (d *recordingSystemDialer) Dial(_ context.Context, source xnet.Address, destination xnet.Destination, options *internet.SocketConfig) (net.Conn, error) {
 	d.source, d.destination, d.options = source, destination, options
 	d.calls++
@@ -170,10 +173,10 @@ func TestWindowsProtectedDialerPreservesExplicitSettings(t *testing.T) {
 		destination xnet.Destination
 		options     *internet.SocketConfig
 	}{
-		{"sendThrough", xnet.ParseAddress("192.0.2.44"), xnet.UDPDestination(xnet.LocalHostIP, 19090), &internet.SocketConfig{TcpNoDelay: true}},
-		{"sendThroughIPv6", xnet.ParseAddress("2001:db8::44"), xnet.UDPDestination(xnet.LocalHostIPv6, 19090), &internet.SocketConfig{TcpNoDelay: true}},
+		{"sendThrough", xnet.ParseAddress("192.0.2.44"), xnet.UDPDestination(xnet.LocalHostIP, 19090), &internet.SocketConfig{TcpKeepAliveIdle: 30}},
+		{"sendThroughIPv6", xnet.ParseAddress("2001:db8::44"), xnet.UDPDestination(xnet.LocalHostIPv6, 19090), &internet.SocketConfig{TcpKeepAliveIdle: 30}},
 		{"socketBind", xnet.AnyIP, xnet.UDPDestination(xnet.LocalHostIP, 19090), &internet.SocketConfig{BindAddress: []byte{192, 0, 2, 45}, BindPort: 19091}},
-		{"tcp", xnet.AnyIP, xnet.TCPDestination(xnet.LocalHostIP, 19090), &internet.SocketConfig{TcpNoDelay: true}},
+		{"tcp", xnet.AnyIP, xnet.TCPDestination(xnet.LocalHostIP, 19090), &internet.SocketConfig{TcpKeepAliveIdle: 30}},
 		{"nonLoopback", nil, xnet.UDPDestination(xnet.ParseAddress("203.0.113.33"), 19090), &internet.SocketConfig{}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

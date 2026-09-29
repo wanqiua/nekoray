@@ -11,8 +11,8 @@ from package_go_build_info import (BUILD_INFO_MAGIC, MODULE_INFO_END, MODULE_INF
 
 
 CORE_SPECS = {
-    "nekoray_core": ("go1.21.13", [
-        ("github.com/xtls/xray-core", "v1.8.4", "github.com/MatsuriDayo/Xray-core", "v0.0.0-20230829080406-01208225ee7e"),
+    "nekoray_core": ("go1.26.4", [
+        ("github.com/xtls/xray-core", "v1.260327.0", "github.com/wanqiua/Xray-core", "v0.0.0-20260928091204-e9639bd461dc"),
     ]),
     "nekobox_core": ("go1.26.4", [
         ("github.com/sagernet/sing-box", "v1.14.0", "github.com/sagernet/sing-box", "v1.14.0"),
@@ -84,7 +84,7 @@ def synthetic_go_payload():
         cores[core] = {**dict(zip(MODULE_FIELDS, dependencies[0])), "go_version": toolchain,
                        "sha256": hashlib.sha256(payload[core + ".exe"]).hexdigest()}
         if core == "nekoray_core":
-            cores[core]["source_revision"] = "01208225ee7e508044cca8eb6776a117bcecd997"
+            cores[core]["source_revision"] = "e9639bd461dcff1c91e26a71a8752fa42d51268d"
         for identity in dependencies + [SHARED_MODULE]:
             if identity in records:
                 records[identity]["cores"].append(core)

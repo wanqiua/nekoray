@@ -94,7 +94,7 @@ namespace ProfileEditorCoreRegression {
             Control<QComboBox>(&editor, "security")->setCurrentText("tls");
             QVERIFY(!Control<QLineEdit>(&editor, "reality_spx")->isHidden());
             network->setCurrentText("httpupgrade");
-            QVERIFY(!Control<QRadioButton>(&editor, "edit_core_xray")->isEnabled());
+            QVERIFY(Control<QRadioButton>(&editor, "edit_core_xray")->isEnabled());
             editor.reject();
         }
         auto node = NekoGui::ProfileManager::NewProxyEntity("shadowsocks");

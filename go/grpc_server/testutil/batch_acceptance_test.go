@@ -177,6 +177,9 @@ func startBatchCore(t *testing.T, directory, mode, family, version string) *batc
 	if capabilities.CoreFamily != family || capabilities.CoreVersion != version || capabilities.BuildId != identity {
 		t.Fatalf("unexpected %s executable identity/version: %s %s %s", family, capabilities.CoreFamily, capabilities.CoreVersion, capabilities.BuildId)
 	}
+	if family == "xray" && capabilities.SourceRevision != "github.com/wanqiua/Xray-core@v0.0.0-20260928091204-e9639bd461dc" {
+		t.Fatalf("unexpected Xray source: %s", capabilities.SourceRevision)
+	}
 	core.identity = batchCoreIdentity{family, version, identity, capabilities.SourceRevision, time.Since(started).Milliseconds()}
 	return core
 }
@@ -513,7 +516,7 @@ func TestMixedCoreBatchAcceptance(t *testing.T) {
 		}
 	}
 	cores := []*batchCore{
-		startBatchCore(t, directory, "nekoray", "xray", "1.8.4"),
+		startBatchCore(t, directory, "nekoray", "xray", "26.3.27-matsuri.1"),
 		startBatchCore(t, directory, "nekobox", "sing-box", "1.14.0"),
 	}
 	for _, core := range cores {
@@ -606,5 +609,5 @@ func TestMixedCoreBatchAcceptance(t *testing.T) {
 		"cancellation did not exercise both cores under one budget: peak=%d per-core=%v", cancelled.ServerPeak, cancelled.ServerPeakByCore)
 	t.Logf("cancel_mixed_batch: %d active, %d queued, returned/drained in %d ms", cancelled.Dispatched, len(stalled)-cancelled.Dispatched, report.CancelToReturnMS)
 	run("recovery_mixed_batch", healthy, budget) // Reuse the same two daemon processes.
-	t.Logf("acceptance: %d/%d serial/batch statuses match; mixed throughput %.2fx; fixed Xray 1.8.4 + sing-box 1.14.0", report.MatchedResults, report.ComparedResults, report.ThroughputSpeedup)
+	t.Logf("acceptance: %d/%d serial/batch statuses match; mixed throughput %.2fx; pinned Xray + sing-box binaries", report.MatchedResults, report.ComparedResults, report.ThroughputSpeedup)
 }

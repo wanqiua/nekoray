@@ -21,7 +21,7 @@ from package_fixture import (assert_original_bytes, assert_retained, copy_fixtur
                              digest, read_json, stable_snapshot, write_json)
 from package_go_build_info import verify_go_metadata
 
-XRAY_REVISION = "01208225ee7e508044cca8eb6776a117bcecd997"
+XRAY_REVISION = "e9639bd461dcff1c91e26a71a8752fa42d51268d"
 PRODUCT_NAME = "NekoRay_BY_WanQiu"
 GUI_FILENAME = PRODUCT_NAME + ".exe"
 REQUIRED_FILES = {
@@ -97,8 +97,9 @@ def check_core_manifest(manifest: dict):
         raise ValueError("Unexpected GUI base")
     cores = manifest["cores"]
     xray, box = cores["nekoray_core"], cores["nekobox_core"]
-    if (xray.get("version", "").removeprefix("v") != "1.8.4" or
-        xray.get("source_module") != "github.com/MatsuriDayo/Xray-core" or
+    if (xray.get("version") != "v1.260327.0" or
+        xray.get("source_module") != "github.com/wanqiua/Xray-core" or
+        xray.get("source_version") != "v0.0.0-20260928091204-e9639bd461dc" or
         xray.get("source_revision") != XRAY_REVISION or
         box.get("version", "").removeprefix("v") != "1.14.0" or
         box.get("source_module") != "github.com/sagernet/sing-box"):
@@ -250,7 +251,7 @@ def verify_archive(archive: Path, destination: Path, require_source: bool = True
     return {"archive": archive.name, "archive_sha256": digest(archive), "files_verified": len(records),
             "manifest_sha256": digest(payload / "package-manifest.json"),
             "source_archive_verified": source_verified, "payload": str(payload.resolve()),
-            "xray": "Matsuri 1.8.4", "sing_box": "1.14.0", "native_executed": False, **go_metadata}
+            "xray": "wanqiua 26.3.27-matsuri.1", "sing_box": "1.14.0", "native_executed": False, **go_metadata}
 
 
 def clean_environment() -> dict[str, str]:

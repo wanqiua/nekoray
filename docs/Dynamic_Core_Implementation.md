@@ -55,7 +55,7 @@
 | 组件 | 本轮固定基线 |
 | --- | --- |
 | GUI | Nekoray 3.26 二开分支 |
-| Xray | Matsuri Xray 1.8.4，提交 `01208225ee7e508044cca8eb6776a117bcecd997` |
+| Xray | wanqiua Xray 26.3.27-matsuri.1，提交 `e9639bd461dcff1c91e26a71a8752fa42d51268d` |
 | sing-box | 1.14.0 |
 
 保留 Xray 的 `rc4-md5` 与 `allowInsecure` 兼容路径。本轮同时完成计划中 R1 的运行流程和后续新增协议代码，不升级或替换用户现有安装目录。
@@ -65,6 +65,8 @@
 后续复核增加了外置 TUN + FakeIP + 非空 CIDR + AsIs 的预检保护。FakeIP 还原为域名后不能假设原假地址仍能匹配 CIDR；这类组合会提示改用进程范围或调整解析策略，保留原设置和运行连接。17 个新增拒绝组合的本地测试通过。补充主机用例早期曾等待 UAC 超时；9 月 15 日 `run-9501cb8769bb462bb9f6c351570469e1` 已通过新增断言：拒绝不兼容设置后 helper、RPC 客户端、配置指纹、会话及设置草稿保持，TCP/UDP/DNS 继续转发，随后切到进程范围的 FakeIP 还原也通过。原代理、112 个配置文件及全部路由/DNS/网卡恢复，残留测试内核为 0。
 
 **构建与验证记录**
+
+以下表格保留此前 Matsuri 1.8.4 的验收记录，不代表本次 wanqiua Xray 升级重跑了所有系统用例。本次升级的构建与验证范围见 [Core_Upgrade.md](Core_Upgrade.md)。
 
 GUI 构建目录为 `build/core-upgrade-check/gui-check`。GUI 测试使用独立 `QTemporaryDir`、虚构节点和动态分配的回环端口；用户安装目录只作受保护状态核对，不加载真实节点进行验收。候选包写入全新路径，现有安装保留。
 

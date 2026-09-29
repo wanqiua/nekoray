@@ -3,33 +3,51 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 func normalizeXrayConfig(input string) (string, error) {
-	var config struct {
-		Outbounds []struct {
-			TargetStrategy string `json:"targetStrategy"`
-			StreamSettings struct {
-				TLSSettings struct {
-					PinnedPeerCertSha256 string `json:"pinnedPeerCertSha256"`
-					VerifyPeerCertByName string `json:"verifyPeerCertByName"`
-				} `json:"tlsSettings"`
-			} `json:"streamSettings"`
-		} `json:"outbounds"`
-	}
+	var config map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(input), &config); err != nil {
 		return "", err
 	}
-	for _, out := range config.Outbounds {
-		if out.TargetStrategy != "" && out.TargetStrategy != "AsIs" {
-			return "", fmt.Errorf("Xray 1.8.4 compatibility core does not support outbound targetStrategy; use its native routing/DNS settings")
-		}
-		tls := out.StreamSettings.TLSSettings
-		if tls.PinnedPeerCertSha256 != "" || tls.VerifyPeerCertByName != "" {
-			return "", fmt.Errorf("Xray 1.8.4 compatibility core does not support pinnedPeerCertSha256/verifyPeerCertByName; use a trusted certificate or explicitly enable allowInsecure")
+	var outbounds []map[string]json.RawMessage
+	if raw, ok := config["outbounds"]; ok {
+		if err := json.Unmarshal(raw, &outbounds); err != nil {
+			return "", err
 		}
 	}
-	// 3.26's native fields (including allowInsecure and legacy SS methods/plugins)
-	// already match this fork. Do not rewrite settings or silently drop pins.
-	return input, nil
+	changed := false
+	for _, out := range outbounds {
+		if legacy, ok := out["domainStrategy"]; ok {
+			var oldStrategy, newStrategy string
+			if err := json.Unmarshal(legacy, &oldStrategy); err != nil {
+				return "", fmt.Errorf("outbound domainStrategy: %w", err)
+			}
+			if modern, ok := out["targetStrategy"]; ok {
+				if err := json.Unmarshal(modern, &newStrategy); err != nil {
+					return "", fmt.Errorf("outbound targetStrategy: %w", err)
+				}
+				if !strings.EqualFold(oldStrategy, newStrategy) {
+					return "", fmt.Errorf("outbound domainStrategy conflicts with targetStrategy")
+				}
+			} else {
+				out["targetStrategy"] = legacy
+			}
+			delete(out, "domainStrategy")
+			changed = true
+		}
+	}
+	// Only the outbound-level strategy was renamed. Routing, freedom and
+	// sockopt domainStrategy, legacy plugins and both pin formats stay native.
+	if !changed {
+		return input, nil
+	}
+	encoded, err := json.Marshal(outbounds)
+	if err != nil {
+		return "", err
+	}
+	config["outbounds"] = encoded
+	encoded, err = json.Marshal(config)
+	return string(encoded), err
 }

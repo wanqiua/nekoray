@@ -4,12 +4,12 @@
 
 | 组件 | 固定版本 | Go module |
 | --- | --- | --- |
-| Xray | [Matsuri v1.8.4 兼容版](https://github.com/MatsuriDayo/Xray-core/commit/01208225ee7e508044cca8eb6776a117bcecd997) | `github.com/xtls/xray-core v1.8.4`，替换到 `github.com/MatsuriDayo/Xray-core v0.0.0-20230829080406-01208225ee7e` |
+| Xray | [wanqiua 26.3.27-matsuri.1](https://github.com/wanqiua/Xray-core/commit/e9639bd461dcff1c91e26a71a8752fa42d51268d) | `github.com/xtls/xray-core v1.260327.0`，替换到 `github.com/wanqiua/Xray-core v0.0.0-20260928091204-e9639bd461dc` |
 | sing-box | [v1.14.0](https://github.com/SagerNet/sing-box/releases/tag/v1.14.0) | `github.com/sagernet/sing-box v1.14.0` |
-| Go（Xray） | 1.21.13 | 兼容旧 QUIC / REALITY 依赖 |
+| Go（Xray） | 1.26.4 | wanqiua 兼容分支工具链 |
 | Go（sing-box） | 1.26.4 | sing-box v1.14.0 工具链 |
 
-版本在 `go.mod` / `go.sum` 中固定。Xray 使用 Matsuri fork 以保留 `rc4-md5`、旧 Shadowsocks 插件和 `allowInsecure`；sing-box 使用官方模块。Go 会下载固定依赖，无需另外检出这些内核仓库。
+版本在 `go.mod` / `go.sum` 中固定。Xray 使用 wanqiua 仓库的 `codex/matsuri-compat` 分支，以保留 `rc4-md5`、旧 Shadowsocks 插件、旧传输和 `allowInsecure`；sing-box 使用官方模块。Go 会下载固定依赖，无需另外检出这些内核仓库。Xray 仓库目前为私有，需要 Git 已具有该仓库的读取权限；脚本为该模块临时设置 `GOPRIVATE`，不会持久修改 Go 或 Git 配置。
 
 ## Windows / PowerShell
 
@@ -77,8 +77,8 @@ Pop-Location
 
 ## 继续修改内核
 
-适配层入口是 `go/cmd/nekoray_core/` 和 `go/cmd/nekobox_core/`。一般的 GUI 配置兼容问题在这两处解决；协议实现分别在固定的 Matsuri Xray 和官方 sing-box 模块中。手动运行 Xray 的 Go 命令前需设置 `GOTOOLCHAIN=go1.21.13`，较新的宿主 Go 不会仅凭 `toolchain` 指令自动降级。
+适配层入口是 `go/cmd/nekoray_core/` 和 `go/cmd/nekobox_core/`。一般的 GUI 配置兼容问题在这两处解决；协议实现分别在固定的 wanqiua Xray 和官方 sing-box 模块中。手动运行 Xray 的 Go 命令时使用 `GOTOOLCHAIN=go1.26.4`，并将 `github.com/wanqiua/Xray-core` 加入 `GOPRIVATE`。
 
 需要修改协议源码时，先把对应来源仓库及固定提交检出到自己的开发目录，再在对应 Go 模块中用 `go mod edit -replace=模块路径=本地目录`，或者使用本地 `go.work`。本地替换不会自动纳入发布版本；交付前固定到自己的 fork 提交，重新构建并运行回归测试。
 
-升级后续版本时，分别更新两个模块的依赖、执行 `go mod tidy`，然后重新运行上面的构建和测试。不要跳过旧配置迁移、RC4-MD5、跳过证书验证及批量 URL 测试：直接改回最新官方 Xray 会再次失去所需的旧功能。兼容版不包含 XHTTP 等后续 Xray 功能。
+升级后续版本时，分别更新两个模块的依赖、执行 `go mod tidy`，然后重新运行上面的构建和测试。不要跳过旧配置迁移、RC4-MD5、跳过证书验证及批量 URL 测试：直接改回官方 Xray 会失去所需的旧功能。兼容版已包含 XHTTP 和 HTTPUpgrade；XHTTP 暂通过自定义配置使用。

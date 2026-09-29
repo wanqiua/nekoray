@@ -205,7 +205,6 @@ namespace NekoGui {
             const bool tls = stream->security == "tls";
             const bool reality = tls && NonEmpty(stream->reality_pbk);
             if (box && network == "kcp") return QObject::tr("sing-box 不支持 mKCP 传输");
-            if (!box && network == "httpupgrade") return QObject::tr("当前 Xray 兼容内核不支持 HTTPUpgrade");
             if (network == "tcp" && HasHeader(stream->header_type)) {
                 if (stream->header_type != "http") return QObject::tr("不支持此 TCP header 类型：%1").arg(stream->header_type);
                 if (box) return QObject::tr("sing-box 的 HTTP transport 不能等价替代 Xray TCP HTTP header");

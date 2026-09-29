@@ -6,7 +6,7 @@
 .\tests\acceptance\batch-url.ps1
 ```
 
-默认使用 `build/dynamic-core-check/bin` 中的 Xray **1.8.4**、sing-box **1.14.0** 包装内核，执行 3 轮。每轮使用 24 个合成节点，合计并发为 6，成功服务端固定等待 200 ms 后返回响应。需要已安装 Go；脚本固定使用 `go1.21.13` 和 `-mod=readonly`，不会升级项目依赖或内核。
+默认使用 `build/dynamic-core-check/bin` 中的包装内核，执行 3 轮。验证本次升级请通过 `-CoreDirectory deployment/windows64` 指向新构建的 wanqiua Xray **26.3.27-matsuri.1** 和 sing-box **1.14.0**。每轮使用 24 个合成节点，合计并发为 6，成功服务端固定等待 200 ms 后返回响应。需要已安装 Go；脚本固定使用 `go1.26.4` 和 `-mod=readonly`，不会升级项目依赖或内核。
 
 可指定隔离构建位置和并发参数：
 
@@ -38,7 +38,7 @@
 在其他平台可直接调用相同测试：
 
 ```sh
-GOTOOLCHAIN=go1.21.13 \
+GOTOOLCHAIN=go1.26.4 \
 NEKORAY_CORE_BIN_DIR=/absolute/path/to/isolated/cores \
 NEKORAY_BATCH_REPORT=/absolute/path/to/report.json \
 go test -mod=readonly -v -count=1 -run '^TestMixedCoreBatchAcceptance$' -timeout 180s ./testutil

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export GOPRIVATE="${GOPRIVATE:+$GOPRIVATE,}github.com/wanqiua/Xray-core"
+export GOTOOLCHAIN=go1.26.4
 
 SRC_ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 # Dependencies are pinned in go.mod/go.sum. No sibling fork checkouts are needed.

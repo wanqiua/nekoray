@@ -2,17 +2,24 @@
 
 基于 [NekoRay](https://github.com/MatsuriDayo/nekoray) 的双内核 Windows 便携版，沿用 [GPL-3.0 许可证](LICENSE)。项目仓库：[wanqiua/nekoray](https://github.com/wanqiua/nekoray)。
 
-当前版本：**[0.11](https://github.com/wanqiua/nekoray/releases/tag/v0.11)**。内置 **Matsuri Xray 1.8.4 兼容版**和 **sing-box 1.14.0**。
+当前版本：**[0.2](https://github.com/wanqiua/nekoray/releases/tag/v0.2)**。内置 **[wanqiua/Xray-core](https://github.com/wanqiua/Xray-core) 26.3.27-matsuri.1** 和 **sing-box 1.14.0**。
 
 ## 下载与使用
 
-- [Windows x64 便携包](https://github.com/wanqiua/nekoray/releases/download/v0.11/NekoRay_BY_WanQiu-0.11-windows-x64.zip)
-- [对应源码包](https://github.com/wanqiua/nekoray/releases/download/v0.11/NekoRay_BY_WanQiu-0.11-windows-x64-source.zip)
-- [SHA-256 校验文件](https://github.com/wanqiua/nekoray/releases/download/v0.11/NekoRay_BY_WanQiu-0.11-windows-x64.sha256)
+- [Windows x64 便携包](https://github.com/wanqiua/nekoray/releases/download/v0.2/NekoRay_BY_WanQiu-0.2-windows-x64.zip)
+- [对应源码包](https://github.com/wanqiua/nekoray/releases/download/v0.2/NekoRay_BY_WanQiu-0.2-windows-x64-source.zip)
+- [SHA-256 校验文件](https://github.com/wanqiua/nekoray/releases/download/v0.2/NekoRay_BY_WanQiu-0.2-windows-x64.sha256)
 
 解压整个文件夹后运行 `NekoRay_BY_WanQiu.exe`。包内包含 Qt、TLS 和 VC++ 运行库，配置保存在程序目录的 `config` 文件夹。支持 Windows 10/11 x64，实际验收环境为 Windows 11。
 
 升级时先退出旧版，备份并复制旧版 `config` 文件夹到新目录。旧配置目录及内核程序名继续兼容，无需重新导入节点和订阅。详见[便携版使用说明](docs/Portable_Windows.md)。
+
+## 0.2 的变化
+
+- Xray 升级到 wanqiua 的 26.3.27-matsuri.1，保留 RC4-MD5、内置 SIP003 插件和旧传输兼容。
+- HTTPUpgrade 接入界面；XHTTP 可通过自定义配置使用。
+- 证书指纹改用新版原生校验，支持服务器发送证书链；适配新版 Windows UDP 网卡绑定与连接管理。
+- 详细变更见 [0.2 发行说明](docs/Release_0.2.md)。
 
 ## 0.11 的修复
 
@@ -35,7 +42,7 @@
 
 0.11 新增 VLESS / Trojan / VMess 的 `pcs` 证书 SHA-256 支持。链接中的 `allowInsecure`、`insecure`、`allow_insecure` 按此优先级解析，`1/true` 开启、`0/false` 关闭。Clash 的十六进制 `fingerprint` 同样导入；指纹保留到编辑、保存和分享，包括旧版 VMess JSON 分享格式。
 
-这些协议填写指纹后只按指纹校验，自动模式选择 Xray；sing-box 不会静默丢弃指纹。当前 Xray 1.8.4 使用证书链 SHA-256，因此只适用于服务器发送单张证书的情况；发送多张证书时，单证书指纹会校验失败。REALITY 使用自己的认证机制，不使用 `pcs`。Xray 支持 VLESS + REALITY，但当前版本不支持 WebSocket + REALITY，这种组合会选择 sing-box。
+这些协议填写指纹后只按指纹校验，自动模式选择 Xray；sing-box 不会静默丢弃指纹。当前源码使用 Xray 原生 `pinnedPeerCertSha256`，服务器发送多张证书时也可以验证叶证书指纹。REALITY 使用自己的认证机制，不使用 `pcs`。Xray 支持 VLESS + REALITY，但不支持 WebSocket + REALITY，这种组合会选择 sing-box。
 
 审查依据、兼容边界和测试范围见 [TLS 证书指纹修复说明](docs/TLS_Certificate_Pins.md)。
 
@@ -43,7 +50,7 @@
 
 支持 SOCKS 4/4a/5、HTTP(S)、Shadowsocks、VMess、VLESS、Trojan，以及使用 sing-box 的 AnyTLS、Snell 4/6、TUIC、Hysteria、Hysteria2。订阅支持常见节点链接、Clash/YAML、Shadowsocks 和 v2rayN 格式。
 
-Xray 兼容版保留 `rc4-md5` 和原有跳过证书验证设置，不包含 XHTTP 等较新的 Xray 功能。Hysteria2 的证书 SHA-256 扩展由随包内核实现，不能把其配置直接交给未包含此扩展的官方 sing-box。填写证书指纹后按指纹验证服务端证书（与 Clash Meta 一致），自签名证书无需开启跳过证书验证；指纹不符时拒绝连接。
+Xray 兼容版保留 `rc4-md5`、内置 SIP003 插件、旧 HTTP/2 / QUIC / mKCP 和原有跳过证书验证设置。HTTPUpgrade 可在界面配置；XHTTP 由内核支持，目前需使用 Xray 自定义配置。Hysteria2 的证书 SHA-256 扩展由随包内核实现，不能把其配置直接交给未包含此扩展的官方 sing-box。填写证书指纹后按指纹验证服务端证书（与 Clash Meta 一致），自签名证书无需开启跳过证书验证；指纹不符时拒绝连接。
 
 ## 源码、构建与验证
 

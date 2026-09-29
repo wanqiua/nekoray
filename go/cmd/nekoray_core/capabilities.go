@@ -13,8 +13,8 @@ func coreCapabilities() *gen.CapabilitiesResp {
 	return grpc_server.CoreCapabilities("xray", core.Version(), "github.com/xtls/xray-core", []string{
 		"rpc.check", "rpc.capabilities", "rpc.structured-test-results",
 		"outbound.socks", "outbound.http", "outbound.shadowsocks", "outbound.vmess", "outbound.vless", "outbound.trojan", "outbound.wireguard",
-		"transport.tcp", "transport.ws", "transport.grpc", "transport.http", "transport.kcp", "transport.quic",
-		"tls", "tls.insecure", "tls.utls", "tls.reality",
+		"transport.tcp", "transport.ws", "transport.grpc", "transport.http", "transport.kcp", "transport.quic", "transport.httpupgrade", "transport.xhttp",
+		"tls", "tls.insecure", "tls.utls", "tls.reality", "tls.certificate-pin",
 		"shadowsocks.rc4-md5", "shadowsocks.bf-cfb", "shadowsocks.sip003", "shadowsocks.2022",
 	})
 }
@@ -28,7 +28,7 @@ func checkXrayConfig(input string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Do not call core.New here. In the Matsuri fork it immediately replaces
+	// Do not call core.New here. In the compatibility fork it replaces
 	// the process log handler and a SIP003 constructor can start a child core.
 	// LoadConfig uses the exact JSON decoder/builders used by the real start,
 	// without constructing runtime handlers or acquiring any listener.

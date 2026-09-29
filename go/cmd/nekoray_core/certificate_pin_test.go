@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"io"
 	"net/http"
@@ -14,16 +15,28 @@ import (
 	"grpc_server/testutil"
 )
 
-// Exercise the exact native JSON field emitted by the GUI, through real
-// VLESS connections. Both Go TLS and Chrome uTLS must enforce the pin even
-// though allowInsecure disables CA and hostname verification.
+// Retain the old chain pin semantics for existing custom configurations.
 func TestCertificatePinTLS(t *testing.T) {
+	testCertificatePinTLS(t, false)
+}
+
+// The GUI emits the modern certificate pin. It must also work when the
+// server sends a chain, without needing allowInsecure for self-signed peers.
+func TestModernCertificatePinTLS(t *testing.T) {
+	testCertificatePinTLS(t, true)
+}
+
+func testCertificatePinTLS(t *testing.T, modern bool) {
 	certificate, key := selfSignedCompatibilityCertificate(t)
 	block, _ := pem.Decode([]byte(certificate))
 	hash := sha256.Sum256(block.Bytes)
 	pin := base64.StdEncoding.EncodeToString(hash[:])
 	wrongHash := sha256.Sum256([]byte("wrong certificate"))
 	wrong := base64.StdEncoding.EncodeToString(wrongHash[:])
+	if modern {
+		pin = hex.EncodeToString(hash[:])
+		wrong = hex.EncodeToString(wrongHash[:])
+	}
 	for _, network := range []string{"tcp", "ws"} {
 		for _, chain := range []bool{false, true} {
 			certificates := certificate
@@ -51,23 +64,26 @@ func TestCertificatePinTLS(t *testing.T) {
 					pins            []string
 					insecure, works bool
 				}{
-					{"correct", []string{pin}, true, !chain},
+					{"correct", []string{pin}, true, modern || !chain},
 					{"wrong", []string{wrong}, true, false},
-					{"multiple", []string{wrong, pin}, true, !chain},
-					{"ca-required", []string{pin}, false, false},
+					{"multiple", []string{wrong, pin}, true, modern || !chain},
+					{"secure-setting", []string{pin}, false, modern},
 				} {
 					chainName := "leaf"
 					if chain {
 						chainName = "chain"
 					}
 					t.Run(network+"/"+chainName+"/"+fingerprint+"/"+tc.name, func(t *testing.T) {
+						tls := map[string]any{"serverName": "disguised.example.invalid", "allowInsecure": tc.insecure, "fingerprint": fingerprint}
+						if modern {
+							tls["pinnedPeerCertSha256"] = strings.Join(tc.pins, ",")
+						} else {
+							tls["pinnedPeerCertificateChainSha256"] = tc.pins
+						}
 						config := compatibilityConfig(t, nil, []any{map[string]any{"tag": "proxy", "protocol": "vless",
 							"settings": map[string]any{"vnext": []any{map[string]any{"address": "127.0.0.1", "port": port,
 								"users": []any{map[string]any{"id": compatibilityUUID, "encryption": "none"}}}}},
-							"streamSettings": map[string]any{"network": network, "security": "tls", "tlsSettings": map[string]any{
-								"serverName": "disguised.example.invalid", "allowInsecure": tc.insecure,
-								"fingerprint": fingerprint, "pinnedPeerCertificateChainSha256": tc.pins,
-							}}}})
+							"streamSettings": map[string]any{"network": network, "security": "tls", "tlsSettings": tls}}})
 						if _, err := checkXrayConfig(config); err != nil {
 							t.Fatal(err)
 						}

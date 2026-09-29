@@ -15,7 +15,7 @@ $tags = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'core_build_tags
 $guiVersion = (Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'nekoray_version.txt')).Trim()
 $version = 'NekoRay_BY_WanQiu-' + $guiVersion
 $oldEnvironment = @{}
-foreach ($name in @('CGO_ENABLED', 'GOOS', 'GOARCH', 'GOTOOLCHAIN')) {
+foreach ($name in @('CGO_ENABLED', 'GOOS', 'GOARCH', 'GOTOOLCHAIN', 'GOPRIVATE')) {
     $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
@@ -37,14 +37,15 @@ try {
     $env:CGO_ENABLED = '0'
     $env:GOOS = $TargetOS
     $env:GOARCH = $TargetArch
+    $env:GOPRIVATE = (@($env:GOPRIVATE, 'github.com/wanqiua/Xray-core') | Where-Object { $_ }) -join ','
     foreach ($core in @('nekoray_core', 'nekobox_core')) {
-        $env:GOTOOLCHAIN = if ($core -eq 'nekoray_core') { 'go1.21.13' } else { 'go1.26.4' }
+        $env:GOTOOLCHAIN = 'go1.26.4'
         Push-Location (Join-Path $projectRoot "go/cmd/$core")
         try {
             $tagArguments = if ($core -eq 'nekobox_core') { @('-tags', $tags) } else { @() }
             if ($Test) {
                 Write-Host "Testing $core"
-                & go test @tagArguments -count=1 -timeout 90s ./...
+                & go test @tagArguments -count=1 -timeout 120s ./...
                 if ($LASTEXITCODE -ne 0) { throw "$core tests failed" }
             }
             $output = Join-Path $destination ($core + $extension)
@@ -63,8 +64,8 @@ try {
                 sha256 = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
             }
             if ($core -eq 'nekoray_core') {
-                $manifest.cores[$core].variant = 'Matsuri compatibility'
-                $manifest.cores[$core].source_revision = '01208225ee7e508044cca8eb6776a117bcecd997'
+                $manifest.cores[$core].variant = 'WanQiu Matsuri compatibility'
+                $manifest.cores[$core].source_revision = 'e9639bd461dcff1c91e26a71a8752fa42d51268d'
             }
         } finally { Pop-Location }
     }

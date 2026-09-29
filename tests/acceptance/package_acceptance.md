@@ -2,7 +2,7 @@
 
 **已准备的检查**
 
-- ZIP 文件路径、重复项、文件集合、长度和 SHA-256；核对两个内核清单、Matsuri Xray 1.8.4 固定提交及 sing-box 1.14.0。
+- ZIP 文件路径、重复项、文件集合、长度和 SHA-256；核对两个内核清单、wanqiua Xray 26.3.27-matsuri.1 固定提交及 sing-box 1.14.0。
 - 直接从两个 Windows amd64 EXE 的 PE 数据段读取 Go 内嵌元数据，逐字核对 `licenses/*-build-info.txt`，包含工具链、模块校验和、替代来源和构建设置。此步骤只读文件，不运行 Go 或内核。
 - 核对 `licenses/go-modules.json` 与实际链接模块的完整集合、版本、替代来源及所属内核，校验 notices 目录标识、文件数量和非空内容；sing-box 必须实际链接 AnyTLS、Snell 和 QUIC 模块。
 - 同目录源码包的哈希、CRC、必要源码及工作区快照标识；覆盖新协议 Bean、导入和编辑器、能力声明、HY2 配置、共享 RPC 源码、测试及 notices 生成器。拒绝运行目录、用户配置、日志、DPAPI 快照和 `__pycache__`。

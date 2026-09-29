@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Xray:", core.Version(), "(Matsuri compatibility)", "NekoRay:", neko_common.Version_neko)
+	fmt.Println("Xray:", core.Version(), "(wanqiua/Xray-core)", "NekoRay:", neko_common.Version_neko)
 	fmt.Println()
 
 	// nekoray_core

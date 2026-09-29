@@ -48,7 +48,7 @@ func TestCoreUDPBridgeProcesses(t *testing.T) {
 		}
 	}
 	t.Run("fixture", func(t *testing.T) { check(t, peerAddress) })
-	xray := startBatchCore(t, directory, "nekoray", "xray", "1.8.4")
+	xray := startBatchCore(t, directory, "nekoray", "xray", "26.3.27-matsuri.1")
 	xrayPort := FreePort(t)
 	udpBridgeLoad(t, xray, fmt.Sprintf(`{"log":{"loglevel":"debug"},"inbounds":[{"tag":"tun-proxy-in","listen":"127.0.0.1","port":%d,"protocol":"socks","settings":{"udp":true}}],"outbounds":[{"tag":"proxy","protocol":"socks","settings":{"servers":[{"address":"127.0.0.1","port":%d}]}}],"routing":{"rules":[{"type":"field","inboundTag":["tun-proxy-in"],"outboundTag":"proxy"}]}}`, xrayPort, peerPort))
 	t.Run("xray", func(t *testing.T) { check(t, fmt.Sprintf("127.0.0.1:%d", xrayPort)) })

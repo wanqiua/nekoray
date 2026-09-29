@@ -40,7 +40,7 @@ foreach ($batchVariable in $batchEnvironmentNames) {
 $batchSummaries = @()
 Push-Location -LiteralPath (Join-Path $batchRepository 'go\grpc_server')
 try {
-    $env:GOTOOLCHAIN = 'go1.21.13'
+    $env:GOTOOLCHAIN = 'go1.26.4'
     $env:NEKORAY_CORE_BIN_DIR = $batchBinaryDirectory
     $env:NEKORAY_BATCH_NODES = [string] $NodeCount
     $env:NEKORAY_BATCH_CONCURRENCY = [string] $Concurrency

@@ -15,7 +15,7 @@ import (
 const connectionHistorySize = 512
 
 // Preserve the JSON consumed by the 3.26 connection table using per-instance
-// outbound tracking. The legacy fork's global connection pool stays disabled.
+// outbound tracking, independent of other instances in the process.
 type connectionInfo struct {
 	ID         uint64
 	Start, End int64
@@ -96,7 +96,11 @@ func (h *trackedOutbound) Dispatch(ctx context.Context, link *transport.Link) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	destination := func() string {
-		item := session.OutboundFromContext(ctx)
+		outbounds := session.OutboundsFromContext(ctx)
+		if len(outbounds) == 0 {
+			return ""
+		}
+		item := outbounds[len(outbounds)-1]
 		if item == nil || item.Target.Address == nil {
 			return ""
 		}

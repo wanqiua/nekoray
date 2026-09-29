@@ -27,8 +27,8 @@ type windowsProtectedSystemDialer struct {
 }
 
 func (d *windowsProtectedSystemDialer) Dial(ctx context.Context, source xnet.Address, destination xnet.Destination, sockopt *internet.SocketConfig) (net.Conn, error) {
-	// Xray creates unconnected UDP sockets through its listener controller,
-	// which only sees the local address. Leaving it unspecified would bind
+	// Xray's dialer controller sees the local address for unconnected UDP
+	// sockets. Leaving it unspecified would bind
 	// even a loopback SOCKS relay to the physical interface while TUN is active.
 	// Use a loopback source for that case; all other routes keep their existing
 	// interface protection, and explicit source/socket settings are preserved.
@@ -99,12 +99,14 @@ func initRoute() {
 			bindInterfaceIndex := getBindInterfaceIndex(address)
 			if bindInterfaceIndex != 0 {
 				var v4, v6 bool
-				if strings.HasSuffix(network, "6") {
+				// UDP ListenConfig can create a dual-stack socket reported as
+				// udp6 even for an IPv4 destination. Protect both families.
+				if strings.HasSuffix(network, "6") && !strings.HasPrefix(network, "udp") {
 					v4 = false
 					v6 = true
 				} else {
 					v4 = true
-					v6 = false
+					v6 = strings.HasPrefix(network, "udp")
 				}
 				if err = bindInterface(fd, bindInterfaceIndex, v4, v6); err != nil {
 					log.Println("bind outbound interface", network, address, err)

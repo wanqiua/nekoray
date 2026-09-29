@@ -155,8 +155,8 @@ foreach ($module in @('qtbase', 'qtsvg', 'qtimageformats')) {
 }
 Copy-Item -LiteralPath (Join-Path $DependencyRoot 'OpenSSL-3.0.10-LICENSE.txt') -Destination $notices
 @'
-NekoRay_BY_WanQiu is based on Nekoray 3.26 with Matsuri Xray 1.8.4 compatibility and sing-box 1.14.0.
-Xray source: https://github.com/MatsuriDayo/Xray-core/tree/01208225ee7e508044cca8eb6776a117bcecd997
+NekoRay_BY_WanQiu is based on Nekoray 3.26 with wanqiua Xray 26.3.27-matsuri.1 and sing-box 1.14.0.
+Xray source: https://github.com/wanqiua/Xray-core/tree/e9639bd461dcff1c91e26a71a8752fa42d51268d
 The compatibility core retains RC4-MD5 and allowInsecure from the original Nekoray fork.
 Nekoray license: ../LICENSE (GPL-3.0).
 Corresponding modified GUI/core adapter source is provided in the accompanying *-source.zip.
@@ -169,7 +169,7 @@ These libraries are dynamically linked and are replaceable by ABI-compatible bui
 Qt license texts and bundled third-party attributions are under Qt-6.5.2/.
 
 OpenSSL 3.0.10: https://github.com/openssl/openssl/tree/openssl-3.0.10
-Go 1.21.13 (Xray) and Go 1.26.4 (sing-box): https://go.dev/dl/
+Go 1.26.4 (both cores): https://go.dev/dl/
 The exact linked Go modules, replacement sources and matching license directories are in go-modules.json.
 Build metadata from each executable is also included. Module checksums are in the supplied source go.sum files.
 

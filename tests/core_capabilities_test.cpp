@@ -117,9 +117,9 @@ private slots:
             QCOMPARE(resolution.targetCore, int(CoreType::V2RAY));
             QVERIFY(!ent->bean->BuildCoreObjSingBox(dataStore).error.isEmpty());
             const auto tls = ent->bean->BuildCoreObjV2Ray(dataStore).outbound["streamSettings"].toObject()["tlsSettings"].toObject();
-            QVERIFY(tls["allowInsecure"].toBool());
-            QCOMPARE(tls["pinnedPeerCertificateChainSha256"].toArray().first().toString(),
-                     QString::fromLatin1(QByteArray::fromHex(QByteArray(64, 'a')).toBase64()));
+            QVERIFY(!tls["allowInsecure"].toBool());
+            QCOMPARE(tls["pinnedPeerCertSha256"].toString(), QString(64, 'a'));
+            QVERIFY(!tls.contains("pinnedPeerCertificateChainSha256"));
             stream->certificate_pin = "invalid";
             QCOMPARE(ResolveCore(ent, CoreType::SING_BOX).targetCore, -1);
             QVERIFY(!ent->bean->BuildCoreObjV2Ray(dataStore).error.isEmpty());
@@ -206,7 +206,13 @@ private slots:
         stream->allow_insecure = true;
         QVERIFY(ResolveCore(ent, CoreType::V2RAY).singBoxSupported);
         stream->network = "httpupgrade";
-        QCOMPARE(ResolveCore(ent, CoreType::V2RAY).targetCore, int(CoreType::SING_BOX));
+        stream->host = "upgrade.example.invalid";
+        stream->path = "/upgrade";
+        QCOMPARE(ResolveCore(ent, CoreType::V2RAY).targetCore, int(CoreType::V2RAY));
+        const auto upgrade = ent->bean->BuildCoreObjV2Ray(dataStore).outbound["streamSettings"].toObject()["httpupgradeSettings"].toObject();
+        QCOMPARE(upgrade["host"].toString(), stream->host);
+        QCOMPARE(upgrade["path"].toString(), stream->path);
+        stream->host.clear();
         stream->network = "xhttp";
         QCOMPARE(ResolveCore(ent, CoreType::V2RAY).targetCore, -1);
         stream->network = "kcp";

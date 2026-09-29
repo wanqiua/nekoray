@@ -20,7 +20,7 @@ func TestGUIProtocolLifecycle(t *testing.T) {
 func TestVLESSCompatibleTransports(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "xray-compatible") }))
 	defer target.Close()
-	for _, transport := range []string{"tcp", "ws", "grpc"} {
+	for _, transport := range []string{"tcp", "ws", "grpc", "httpupgrade", "xhttp"} {
 		t.Run(transport, func(t *testing.T) {
 			port := testutil.FreePort(t)
 			stream := map[string]any{"network": transport}
@@ -29,6 +29,12 @@ func TestVLESSCompatibleTransports(t *testing.T) {
 			}
 			if transport == "grpc" {
 				stream["grpcSettings"] = map[string]any{"serviceName": "test"}
+			}
+			if transport == "httpupgrade" {
+				stream["httpupgradeSettings"] = map[string]any{"path": "/upgrade", "host": "localhost"}
+			}
+			if transport == "xhttp" {
+				stream["xhttpSettings"] = map[string]any{"path": "/xhttp", "mode": "packet-up"}
 			}
 			id := "75f2a015-3611-4c7f-bf7c-a948276b179f"
 			serverConfig := map[string]any{

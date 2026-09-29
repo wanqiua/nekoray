@@ -21,7 +21,7 @@ func TestCheckLegacyFeaturesAndUnavailableProtocols(t *testing.T) {
 		{"bf-cfb", `{"outbounds":[{"tag":"proxy","protocol":"shadowsocks","settings":{"servers":[{"address":"127.0.0.1","port":12345,"method":"bf-cfb","password":"local-test"}]}}]}`, gen.FailureCategory_FailureNone},
 		{"allowInsecure", `{"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"127.0.0.1","port":12345,"users":[{"id":"75f2a015-3611-4c7f-bf7c-a948276b179f","encryption":"none"}]}]},"streamSettings":{"network":"ws","security":"tls","tlsSettings":{"allowInsecure":true}}}]}`, gen.FailureCategory_FailureNone},
 		{"unavailable protocol", `{"outbounds":[{"protocol":"hysteria2","settings":{}}]}`, gen.FailureCategory_FailureUnsupported},
-		{"unavailable modern pin", `{"outbounds":[{"protocol":"freedom","streamSettings":{"security":"tls","tlsSettings":{"pinnedPeerCertSha256":"not-a-real-pin"}}}]}`, gen.FailureCategory_FailureUnsupported},
+		{"invalid modern pin", `{"outbounds":[{"protocol":"freedom","streamSettings":{"security":"tls","tlsSettings":{"pinnedPeerCertSha256":"not-a-real-pin"}}}]}`, gen.FailureCategory_FailureConfig},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			response, err := s.Check(context.Background(), &gen.LoadConfigReq{CoreConfig: test.config})

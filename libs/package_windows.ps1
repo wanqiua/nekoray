@@ -39,12 +39,13 @@ if ($coreManifest.target_os -ne 'windows' -or $coreManifest.target_arch -ne 'amd
     throw 'The core manifest must describe Windows amd64 binaries.'
 }
 if ($coreManifest.gui_base -ne '3.26' -or
-    $coreManifest.cores.nekoray_core.version -ne 'v1.8.4' -or
-    $coreManifest.cores.nekoray_core.source_module -ne 'github.com/MatsuriDayo/Xray-core' -or
-    $coreManifest.cores.nekoray_core.source_revision -ne '01208225ee7e508044cca8eb6776a117bcecd997' -or
+    $coreManifest.cores.nekoray_core.version -ne 'v1.260327.0' -or
+    $coreManifest.cores.nekoray_core.source_module -ne 'github.com/wanqiua/Xray-core' -or
+    $coreManifest.cores.nekoray_core.source_version -ne 'v0.0.0-20260928091204-e9639bd461dc' -or
+    $coreManifest.cores.nekoray_core.source_revision -ne 'e9639bd461dcff1c91e26a71a8752fa42d51268d' -or
     $coreManifest.cores.nekobox_core.version -ne 'v1.14.0' -or
     $coreManifest.cores.nekobox_core.source_module -ne 'github.com/sagernet/sing-box') {
-    throw 'Package inputs must retain Matsuri Xray 1.8.4 compatibility and sing-box 1.14.0.'
+    throw 'Package inputs must use the pinned wanqiua Xray 26.3.27 compatibility source and sing-box 1.14.0.'
 }
 foreach ($core in @('nekoray_core', 'nekobox_core')) {
     $actual = (Get-FileHash -LiteralPath (Join-Path $CoreDirectory "$core.exe") -Algorithm SHA256).Hash
@@ -54,7 +55,7 @@ $requiredInputs = @($windeploy, $GuiPath, $SevenZip, (Join-Path $NoticesDirector
 $requiredInputs += @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll') | ForEach-Object { Join-Path $CrtDirectory $_ }
 $requiredInputs += @('Qt6Core.dll', 'libcrypto-3-x64.dll', 'libssl-3-x64.dll') | ForEach-Object { Join-Path $QtSdk "bin/$_" }
 $requiredInputs += @('geoip.dat', 'geosite.dat', 'geoip.db', 'geosite.db') | ForEach-Object { Join-Path $GeoDataDirectory $_ }
-$packageDocuments = @('Core_Upgrade.md', 'Build_Core.md', 'Build_Windows.md', 'Dynamic_Core_Implementation.md', 'Release_0.1.md', 'Release_0.11.md', 'TLS_Certificate_Pins.md', 'Versioning.md')
+$packageDocuments = @('Core_Upgrade.md', 'Build_Core.md', 'Build_Windows.md', 'Dynamic_Core_Implementation.md', 'Release_0.1.md', 'Release_0.11.md', 'Release_0.2.md', 'TLS_Certificate_Pins.md', 'Versioning.md')
 $requiredInputs += @('Portable_Windows.md') + $packageDocuments | ForEach-Object { Join-Path $projectRoot "docs/$_" }
 $requiredInputs += @('nekoray.png', 'nekobox.png', 'qtbase_zh_CN.qm') | ForEach-Object { Join-Path $projectRoot "res/public/$_" }
 $requiredInputs += Join-Path $projectRoot 'LICENSE'

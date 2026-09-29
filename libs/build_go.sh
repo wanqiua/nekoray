@@ -6,6 +6,7 @@ cd "$SRC_ROOT"
 export GOOS="${GOOS:-$(go env GOOS)}"
 export GOARCH="${GOARCH:-$(go env GOARCH)}"
 export CGO_ENABLED=0
+export GOPRIVATE="${GOPRIVATE:+$GOPRIVATE,}github.com/wanqiua/Xray-core"
 
 case "$GOOS/$GOARCH" in
   windows/amd64) target=windows64 ;;
@@ -25,15 +26,11 @@ ldflags="-w -s -X github.com/matsuridayo/libneko/neko_common.Version_neko=$versi
 for core in nekoray_core nekobox_core; do
   (
     cd "$SRC_ROOT/go/cmd/$core"
-    if [ "$core" = nekoray_core ]; then
-      export GOTOOLCHAIN=go1.21.13
-    else
-      export GOTOOLCHAIN=go1.26.4
-    fi
+    export GOTOOLCHAIN=go1.26.4
     flags=()
     if [ "$core" = nekobox_core ]; then flags=(-tags "$tags"); fi
     if [ "${NKR_TEST_CORES:-0}" = 1 ]; then
-      go test "${flags[@]}" -count=1 -timeout 90s ./...
+      go test "${flags[@]}" -count=1 -timeout 120s ./...
     fi
     go build -mod=readonly "${flags[@]}" -trimpath -ldflags "$ldflags" -o "$DEST/$core$extension" .
   )

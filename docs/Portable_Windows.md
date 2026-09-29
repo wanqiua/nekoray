@@ -1,15 +1,22 @@
-# NekoRay_BY_WanQiu 0.11
+# NekoRay_BY_WanQiu 0.2
 
 适用系统：Windows 10/11 x64，实际验收环境为 Windows 11。
 
 解压整个文件夹后运行 **NekoRay_BY_WanQiu.exe**。首次启动选择默认优先内核，之后选中节点即可点击“自动 / Xray / sing-box”。自动模式在右侧按钮显示目标内核；不支持的选项可悬停查看原因。配置保存在程序目录的 `config` 文件夹。
 
-内置 **Matsuri Xray 1.8.4 兼容版**、**sing-box 1.14.0**、Qt、TLS 和 VC++ 运行库。Xray 保留 `rc4-md5` 和原有 `allowInsecure` 设置，不包含 XHTTP 等后续功能。
+内置 **wanqiua Xray 26.3.27-matsuri.1**、**sing-box 1.14.0**、Qt、TLS 和 VC++ 运行库。Xray 保留 `rc4-md5`、旧传输、内置 SIP003 插件和原有 `allowInsecure` 设置；支持界面的 HTTPUpgrade 和自定义配置中的 XHTTP。
+
+## 0.2 的变化
+
+- Xray 升级到 26.3.27-matsuri.1；旧协议、插件、跳过证书验证及双内核配置继续兼容。
+- HTTPUpgrade 可以直接在界面配置，XHTTP 通过自定义配置使用。
+- 证书指纹支持服务器发送证书链；修复新版 Xray 在 Windows 下的 UDP 双栈网卡绑定。
+- 详见 [0.2 说明](docs/Release_0.2.md)。
 
 ## 0.11 的变化
 
 - 修复 Hysteria2 自签名证书按指纹验证；新增 VLESS / Trojan / VMess 的证书指纹导入、编辑、分享和 Xray 校验。
-- 当前 Xray 指纹适配仅适用于服务器发送单张证书。详见 [0.11 说明](docs/Release_0.11.md)。
+- 历史 0.11 发行包的 Xray 指纹适配仅适用于服务器发送单张证书；当前源码已改为新版原生指纹，支持服务器发送证书链。详见 [TLS 指纹说明](docs/TLS_Certificate_Pins.md)。
 
 ## 0.1 的变化
 
@@ -36,4 +43,4 @@ GeoIP / Geosite 数据来自原上游便携包，旧上游自动更新已禁用�
 
 `core-versions.json` 记录产品版本、内核来源与哈希；`package-manifest.json` 记录整个便携包。配套 `*-source.zip` 包含对应源码及固定子模块。
 
-构建方法、功能范围及系统模式说明见 `docs`。项目许可证见 `LICENSE`，第三方声明见 `licenses`。上游 GUI 基线 3.26 仅表示代码来源，当前产品版本为 0.11。
+构建方法、功能范围及系统模式说明见 `docs`。项目许可证见 `LICENSE`，第三方声明见 `licenses`。上游 GUI 基线 3.26 仅表示代码来源，当前产品版本为 0.2。
