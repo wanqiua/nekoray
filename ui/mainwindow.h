@@ -37,6 +37,11 @@ namespace NekoGui {
 class QButtonGroup;
 class QPushButton;
 class QLabel;
+class QToolButton;
+class QNetworkAccessManager;
+class QNetworkReply;
+class QProgressDialog;
+class QFile;
 namespace NekoGui_rpc { class Client; }
 
 QT_BEGIN_NAMESPACE
@@ -199,6 +204,10 @@ private:
     QHash<int, quint64> preference_revisions;
     QButtonGroup *core_buttons = nullptr;
     QLabel *core_selected_label = nullptr;
+    QLabel *connectionEmptyLabel = nullptr;
+    QByteArray expandedSplitterState;
+    bool lowerPaneCollapsed = false;
+    QStringList updaterArguments;
     QString core_notice;
     int last_crashed_core = -1;
     QTime last_core_crash;

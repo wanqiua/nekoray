@@ -4,13 +4,14 @@
 
 | 版本 | 主要内容 |
 | --- | --- |
+| [v0.3](https://github.com/wanqiua/nekoray/releases/tag/v0.3) | 便携版自动更新并备份；主界面下方面板折叠；连接列表空态说明。 |
 | [v0.2](https://github.com/wanqiua/nekoray/releases/tag/v0.2) | 升级 wanqiua Xray 26.3.27-matsuri.1；HTTPUpgrade、原生证书指纹、旧配置迁移和 Windows UDP 双栈网卡绑定适配。 |
 | [v0.11](https://github.com/wanqiua/nekoray/releases/tag/v0.11) | Hysteria2 自签名证书按指纹验证；insecure 别名解析；VLESS / Trojan / VMess 证书指纹导入、编辑、分享与 Xray 校验。 |
 | [v0.1](https://github.com/wanqiua/nekoray/releases/tag/v0.1) | 新产品名称；删除不可用配置反馈及有效结果判断；VLESS XUDP 的 Xray 映射；Hysteria2 证书指纹与订阅端口别名；正常阻断日志及主界面高度修复。 |
 | [v3.26-dual-core.2](https://github.com/wanqiua/nekoray/releases/tag/v3.26-dual-core.2) | 历史版本：双内核切换、TUN 恢复、批量 URL 测试，以及 AnyTLS、Snell 和 Hysteria2 扩展。 |
 | [v3.26-dual-core.1](https://github.com/wanqiua/nekoray/tree/v3.26-dual-core.1) | 补录的历史开发基线，未包含后续 TUN 与新协议改动。 |
 
-历史标签和发行文件保持原样。当前发行包名称为 `NekoRay_BY_WanQiu-0.2-windows-x64`，包含便携 ZIP、对应源码 ZIP、SHA-256 文件和验证记录。主程序为 `NekoRay_BY_WanQiu.exe`，窗口及 Windows 文件属性使用新名称与版本；原配置目录和两个内核文件名继续兼容。
+历史标签和发行文件保持原样。当前发行包名称为 `NekoRay_BY_WanQiu-0.3-windows-x64`，包含便携 ZIP、对应源码 ZIP、SHA-256 文件和验证记录。主程序为 `NekoRay_BY_WanQiu.exe`，窗口及 Windows 文件属性使用新名称与版本；原配置目录和两个内核文件名继续兼容。
 
 0.2 将 Xray 从 Matsuri **1.8.4** 升级到 **wanqiua 26.3.27-matsuri.1**，sing-box 仍为 **1.14.0**。内核来源见 [构建说明](Build_Core.md)，本版变化见 [0.2 说明](Release_0.2.md)。
 

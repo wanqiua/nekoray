@@ -17,6 +17,18 @@
 #include <QDesktopServices>
 #include <QMessageBox>
 #include <QDialogButtonBox>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QProgressDialog>
+#include <QUuid>
+#include <QUrl>
 
 // ext core
 
@@ -469,67 +481,116 @@ void MainWindow::stop_core_daemon() {
 }
 
 void MainWindow::CheckUpdate() {
-    // on new thread...
-#ifndef NKR_NO_GRPC
-    bool ok;
-    libcore::UpdateReq request;
-    request.set_action(libcore::UpdateAction::Check);
-    request.set_check_pre_release(NekoGui::dataStore->check_include_pre);
-    auto response = NekoGui_rpc::defaultClient->Update(&ok, request);
-    if (!ok) return;
-
-    auto err = response.error();
-    if (!err.empty()) {
-        runOnUiThread([=] {
-            MessageBoxWarning(QObject::tr("Update"), err.c_str());
-        });
-        return;
-    }
-
-    if (response.release_download_url() == nullptr) {
-        runOnUiThread([=] {
-            MessageBoxInfo(QObject::tr("Update"), QObject::tr("No update"));
-        });
-        return;
-    }
-
-    runOnUiThread([=] {
-        auto allow_updater = !NekoGui::dataStore->flag_use_appdata;
-        auto note_pre_release = response.is_pre_release() ? " (Pre-release)" : "";
-        QMessageBox box(QMessageBox::Question, QObject::tr("Update") + note_pre_release,
-                        QObject::tr("Update found: %1\nRelease note:\n%2").arg(response.assets_name().c_str(), response.release_note().c_str()));
-        //
-        QAbstractButton *btn1 = nullptr;
-        if (allow_updater) {
-            btn1 = box.addButton(QObject::tr("Update"), QMessageBox::AcceptRole);
+#ifdef Q_OS_WIN
+    auto network = new QNetworkAccessManager(this);
+    QNetworkRequest request(QUrl("https://api.github.com/repos/wanqiua/nekoray/releases/latest"));
+    request.setRawHeader("Accept", "application/vnd.github+json");
+    request.setRawHeader("X-GitHub-Api-Version", "2022-11-28");
+    request.setHeader(QNetworkRequest::UserAgentHeader, "NekoRay_BY_WanQiu");
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 9, 0))
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+#endif
+    auto reply = network->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, network, reply] {
+        const auto body = reply->readAll();
+        const auto networkError = reply->errorString();
+        const bool requestFailed = reply->error() != QNetworkReply::NoError;
+        reply->deleteLater();
+        network->deleteLater();
+        if (requestFailed) {
+            MessageBoxWarning(tr("Update"), tr("Could not check the latest release: %1").arg(networkError));
+            return;
         }
-        QAbstractButton *btn2 = box.addButton(QObject::tr("Open in browser"), QMessageBox::AcceptRole);
-        box.addButton(QObject::tr("Close"), QMessageBox::RejectRole);
-        box.exec();
-        //
-        if (btn1 == box.clickedButton() && allow_updater) {
-            // Download Update
-            runOnNewThread([=] {
-                bool ok2;
-                libcore::UpdateReq request2;
-                request2.set_action(libcore::UpdateAction::Download);
-                auto response2 = NekoGui_rpc::defaultClient->Update(&ok2, request2);
-                runOnUiThread([=] {
-                    if (response2.error().empty()) {
-                        auto q = QMessageBox::question(nullptr, QObject::tr("Update"),
-                                                       QObject::tr("Update is ready, restart to install?"));
-                        if (q == QMessageBox::StandardButton::Yes) {
-                            this->exit_reason = 1;
-                            on_menu_exit_triggered();
-                        }
-                    } else {
-                        MessageBoxWarning(QObject::tr("Update"), response2.error().c_str());
-                    }
-                });
-            });
-        } else if (btn2 == box.clickedButton()) {
-            QDesktopServices::openUrl(QUrl(response.release_url().c_str()));
+        QJsonParseError parseError;
+        const auto release = QJsonDocument::fromJson(body, &parseError).object();
+        if (parseError.error != QJsonParseError::NoError || release["draft"].toBool() || release["prerelease"].toBool()) {
+            MessageBoxWarning(tr("Update"), tr("GitHub returned invalid latest-release information."));
+            return;
         }
+        if (release["tag_name"].toString() == QString("v") + QCoreApplication::applicationVersion()) {
+            MessageBoxInfo(tr("Update"), tr("You are using the latest version."));
+            return;
+        }
+        QString assetUrl;
+        QString assetDigest;
+        for (const auto &assetValue: release["assets"].toArray()) {
+            const auto asset = assetValue.toObject();
+            const auto name = asset["name"].toString();
+            if (name.startsWith("NekoRay_BY_WanQiu-") && name.endsWith("-windows-x64.zip") && !name.contains("-source")) {
+                assetUrl = asset["browser_download_url"].toString();
+                assetDigest = asset["digest"].toString();
+                break;
+            }
+        }
+        if (assetUrl.isEmpty()) {
+            MessageBoxWarning(tr("Update"), tr("The latest release has no Windows x64 portable package."));
+            return;
+        }
+
+        auto downloadNetwork = new QNetworkAccessManager(this);
+        QNetworkRequest downloadRequest{QUrl(assetUrl)};
+        downloadRequest.setHeader(QNetworkRequest::UserAgentHeader, "NekoRay_BY_WanQiu");
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 9, 0))
+        downloadRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+#endif
+        auto download = downloadNetwork->get(downloadRequest);
+        const auto archiveName = QString("NekoRay_BY_WanQiu-update-%1.zip").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+        const auto downloadPath = QDir(QDir::tempPath()).filePath(archiveName);
+        auto file = new QFile(downloadPath, this);
+        if (!file->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            download->abort();
+            downloadNetwork->deleteLater();
+            download->deleteLater();
+            file->deleteLater();
+            MessageBoxWarning(tr("Update"), tr("Cannot write the update package: %1").arg(file->errorString()));
+            return;
+        }
+        auto progress = new QProgressDialog(tr("Downloading the latest portable version…"), tr("Cancel"), 0, 1000, this);
+        progress->setWindowModality(Qt::WindowModal);
+        progress->setMinimumDuration(0);
+        connect(progress, &QProgressDialog::canceled, download, &QNetworkReply::abort);
+        connect(download, &QNetworkReply::downloadProgress, progress, [progress](qint64 received, qint64 total) {
+            if (total > 0) progress->setValue(static_cast<int>(received * 1000 / total));
+        });
+        connect(download, &QNetworkReply::readyRead, this, [download, file] {
+            const auto bytes = download->readAll();
+            if (file->write(bytes) != bytes.size()) {
+                file->setProperty("writeFailed", true);
+                download->abort();
+            }
+        });
+        connect(download, &QNetworkReply::finished, this, [this, downloadNetwork, download, file, progress, downloadPath, assetDigest] {
+            const auto remaining = download->readAll();
+            if (!remaining.isEmpty() && file->write(remaining) != remaining.size()) file->setProperty("writeFailed", true);
+            const auto networkError = download->errorString();
+            const bool requestFailed = download->error() != QNetworkReply::NoError;
+            const bool fileFailed = file->property("writeFailed").toBool() || !file->flush() || file->error() != QFile::NoError;
+            file->close();
+            download->deleteLater();
+            downloadNetwork->deleteLater();
+            progress->close();
+            progress->deleteLater();
+            file->deleteLater();
+            if (requestFailed || fileFailed) {
+                QFile::remove(downloadPath);
+                MessageBoxWarning(tr("Update"), requestFailed ? tr("Download failed: %1").arg(networkError)
+                                                               : tr("Could not save the downloaded package."));
+                return;
+            }
+            const auto helperPath = QDir(QCoreApplication::applicationDirPath()).filePath("updater.exe");
+            if (!QFileInfo::exists(helperPath)) {
+                MessageBoxWarning(tr("Update"), tr("The update helper is missing. Reinstall using the portable package."));
+                return;
+            }
+            updaterArguments = {"--archive", downloadPath, "--sha256", assetDigest,
+                                "--install-dir", QCoreApplication::applicationDirPath(),
+                                "--executable", QFileInfo(QCoreApplication::applicationFilePath()).fileName(),
+                                "--wait-pid", QString::number(QCoreApplication::applicationPid())};
+            exit_reason = 4;
+            on_menu_exit_triggered();
+        });
     });
+#else
+    QDesktopServices::openUrl(QUrl("https://github.com/wanqiua/nekoray/releases/latest"));
 #endif
 }

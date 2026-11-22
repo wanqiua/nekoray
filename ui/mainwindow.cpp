@@ -52,6 +52,8 @@
 #include <QMenu>
 #include <QDir>
 #include <QFileInfo>
+#include <QStyle>
+#include <QToolButton>
 
 void UI_InitMainWindow() {
     mainwindow = new MainWindow;
@@ -118,11 +120,36 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     ui->toolButton_server->setMenu(ui->menu_server);
     ui->menubar->setVisible(false);
     connect(ui->toolButton_document, &QToolButton::clicked, this, [=] { QDesktopServices::openUrl(QUrl("https://matsuridayo.github.io/")); });
-    connect(ui->toolButton_ads, &QToolButton::clicked, this, [=] { QDesktopServices::openUrl(QUrl("https://matsuricom.pages.dev/")); });
-    connect(ui->toolButton_update, &QToolButton::clicked, this, [=] { runOnNewThread([=] { CheckUpdate(); }); });
+    connect(ui->toolButton_update, &QToolButton::clicked, this, [=] { CheckUpdate(); });
 
     // Setup log UI
     ui->splitter->restoreState(DecodeB64IfValid(NekoGui::dataStore->splitter_state));
+    expandedSplitterState = ui->splitter->saveState();
+    auto lowerPaneToggle = new QToolButton(ui->down_tab);
+    lowerPaneToggle->setAutoRaise(true);
+    lowerPaneToggle->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
+    lowerPaneToggle->setToolTip(tr("Hide log and connection panel"));
+    lowerPaneToggle->setAccessibleName(lowerPaneToggle->toolTip());
+    ui->down_tab->setCornerWidget(lowerPaneToggle, Qt::TopRightCorner);
+    connect(lowerPaneToggle, &QToolButton::clicked, this, [=] {
+        if (lowerPaneCollapsed) {
+            ui->splitter->restoreState(expandedSplitterState);
+            lowerPaneCollapsed = false;
+            lowerPaneToggle->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
+            lowerPaneToggle->setToolTip(tr("Hide log and connection panel"));
+        } else {
+            expandedSplitterState = ui->splitter->saveState();
+            ui->splitter->setSizes({ui->splitter->height(), 0});
+            lowerPaneCollapsed = true;
+            lowerPaneToggle->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
+            lowerPaneToggle->setToolTip(tr("Show log and connection panel"));
+        }
+        lowerPaneToggle->setAccessibleName(lowerPaneToggle->toolTip());
+    });
+    connectionEmptyLabel = new QLabel(ui->tab_2);
+    connectionEmptyLabel->setAlignment(Qt::AlignCenter);
+    connectionEmptyLabel->setWordWrap(true);
+    ui->verticalLayout_2->insertWidget(0, connectionEmptyLabel);
     new SyntaxHighlighter(false, qvLogDocument);
     qvLogDocument->setUndoRedoEnabled(false);
     ui->masterLogBrowser->setUndoRedoEnabled(false);
@@ -155,6 +182,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     MW_show_log_ext_vt100 = [=](const QString &log) {
         runOnUiThread([=] { show_log_impl(cleanVT100String(log)); });
     };
+    refresh_connection_list({});
 
     // table UI
     ui->proxyListTable->callback_save_order = [=] {
@@ -677,7 +705,7 @@ void MainWindow::on_commitDataRequest() {
         }
     }
     //
-    NekoGui::dataStore->splitter_state = ui->splitter->saveState().toBase64();
+    NekoGui::dataStore->splitter_state = (lowerPaneCollapsed ? expandedSplitterState : ui->splitter->saveState()).toBase64();
     //
     auto last_id = NekoGui::dataStore->started_id;
     if (NekoGui::dataStore->remember_enable && last_id >= 0) {
@@ -733,6 +761,11 @@ void MainWindow::on_menu_exit_triggered() {
     if (exit_reason == 1) {
         QDir::setCurrent(QApplication::applicationDirPath());
         QProcess::startDetached("./updater", QStringList{});
+    } else if (exit_reason == 4) {
+        QDir::setCurrent(QApplication::applicationDirPath());
+        if (!QProcess::startDetached("./updater.exe", updaterArguments)) {
+            MessageBoxWarning(tr("Update"), tr("The update helper could not be started. The downloaded package is still available at %1.").arg(updaterArguments.value(1)));
+        }
     } else if (exit_reason == 2 || exit_reason == 3) {
         QDir::setCurrent(QApplication::applicationDirPath());
 
@@ -1696,7 +1729,24 @@ void MainWindow::start_select_mode(QObject *context, const std::function<void(in
 inline QJsonArray last_arr; // format is nekoray_connections_json
 
 void MainWindow::refresh_connection_list(const QJsonArray &arr) {
+    const auto updateEmptyState = [this] {
+        const bool empty = ui->tableWidget_conn->rowCount() == 0;
+        if (!empty) {
+            connectionEmptyLabel->hide();
+            return;
+        }
+        if (!NekoGui::dataStore->connection_statistics) {
+            connectionEmptyLabel->setText(tr("Connection statistics are disabled. Enable them in Preferences > Basic Settings."));
+        } else if (active_core() == NekoGui::CoreType::SING_BOX) {
+            connectionEmptyLabel->setText(tr("Connection listing is not available with sing-box yet."));
+        } else {
+            connectionEmptyLabel->setText(tr("No active connections."));
+        }
+        connectionEmptyLabel->show();
+    };
+
     if (last_arr == arr) {
+        updateEmptyState();
         return;
     }
     last_arr = arr;
@@ -1751,6 +1801,7 @@ void MainWindow::refresh_connection_list(const QJsonArray &arr) {
         f->setText("[" + target1 + "] " + target2);
         ui->tableWidget_conn->setItem(row, 2, f);
     }
+    updateEmptyState();
 }
 
 // Hotkey

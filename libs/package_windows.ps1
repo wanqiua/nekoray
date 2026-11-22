@@ -53,9 +53,10 @@ foreach ($core in @('nekoray_core', 'nekobox_core')) {
 }
 $requiredInputs = @($windeploy, $GuiPath, $SevenZip, (Join-Path $NoticesDirectory 'README.txt'))
 $requiredInputs += @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll') | ForEach-Object { Join-Path $CrtDirectory $_ }
+$requiredInputs += Join-Path $CoreDirectory 'updater.exe'
 $requiredInputs += @('Qt6Core.dll', 'libcrypto-3-x64.dll', 'libssl-3-x64.dll') | ForEach-Object { Join-Path $QtSdk "bin/$_" }
 $requiredInputs += @('geoip.dat', 'geosite.dat', 'geoip.db', 'geosite.db') | ForEach-Object { Join-Path $GeoDataDirectory $_ }
-$packageDocuments = @('Core_Upgrade.md', 'Build_Core.md', 'Build_Windows.md', 'Dynamic_Core_Implementation.md', 'Release_0.1.md', 'Release_0.11.md', 'Release_0.2.md', 'TLS_Certificate_Pins.md', 'Versioning.md')
+$packageDocuments = @('Core_Upgrade.md', 'Build_Core.md', 'Build_Windows.md', 'Dynamic_Core_Implementation.md', 'Release_0.1.md', 'Release_0.11.md', 'Release_0.2.md', 'Release_0.3.md', 'TLS_Certificate_Pins.md', 'Versioning.md')
 $requiredInputs += @('Portable_Windows.md') + $packageDocuments | ForEach-Object { Join-Path $projectRoot "docs/$_" }
 $requiredInputs += @('nekoray.png', 'nekobox.png', 'qtbase_zh_CN.qm') | ForEach-Object { Join-Path $projectRoot "res/public/$_" }
 $requiredInputs += Join-Path $projectRoot 'LICENSE'
@@ -104,6 +105,7 @@ Copy-Payload $GuiPath $guiFilename
 foreach ($name in @('nekoray_core.exe', 'nekobox_core.exe', 'core-versions.json')) {
     Copy-Payload (Join-Path $CoreDirectory $name) $name
 }
+Copy-Payload (Join-Path $CoreDirectory 'updater.exe') 'updater.exe'
 $oldPath = $env:PATH
 try {
     $env:PATH = (Join-Path $QtSdk 'bin') + ';' + $oldPath

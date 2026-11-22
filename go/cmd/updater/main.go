@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 )
 
 func main() {
@@ -26,15 +25,25 @@ func main() {
 	if strings.HasPrefix(strings.ToLower(exe), "updater") {
 		if runtime.GOOS == "windows" {
 			if strings.HasPrefix(strings.ToLower(exe), "updater.old") {
-				// 2. "updater.old" update files
-				time.Sleep(time.Second)
-				Updater()
-				// 3. start
-				exec.Command("./nekoray.exe").Start()
+				if len(os.Args) < 2 {
+					MessageBoxPlain("NekoRay Updater", "Missing update arguments.")
+					return
+				}
+				if err := applyPortableUpdate(os.Args[1:]); err != nil {
+					MessageBoxPlain("NekoRay Updater", "Update failed. The backup has been kept.\n\n"+err.Error())
+					return
+				}
+				if err := exec.Command("./NekoRay_BY_WanQiu.exe").Start(); err != nil {
+					MessageBoxPlain("NekoRay Updater", "Update completed, but NekoRay could not be restarted.\n\n"+err.Error())
+				}
 			} else {
-				// 1. nekoray stop it self and run "updater.exe"
-				Copy("./updater.exe", "./updater.old")
-				exec.Command("./updater.old", os.Args[1:]...).Start()
+				if err := Copy("./updater.exe", "./updater.old"); err != nil {
+					MessageBoxPlain("NekoRay Updater", "Could not prepare the update helper.\n\n"+err.Error())
+					return
+				}
+				if err := exec.Command("./updater.old", os.Args[1:]...).Start(); err != nil {
+					MessageBoxPlain("NekoRay Updater", "Could not start the update helper.\n\n"+err.Error())
+				}
 			}
 		} else {
 			// 1. update files
@@ -54,9 +63,13 @@ func main() {
 	log.Fatalf("wrong name")
 }
 
-func Copy(src string, dst string) {
-	// Read all content of src to data
-	data, _ := ioutil.ReadFile(src)
-	// Write data to dst
-	ioutil.WriteFile(dst, data, 0644)
+func Copy(src string, dst string) error {
+	data, err := ioutil.ReadFile(src)
+	if err == nil {
+		err = ioutil.WriteFile(dst, data, 0644)
+	}
+	if err != nil {
+		log.Println("copy updater:", err)
+	}
+	return err
 }

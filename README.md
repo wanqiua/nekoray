@@ -2,19 +2,26 @@
 
 基于 [NekoRay](https://github.com/MatsuriDayo/nekoray) 的双内核 Windows 便携版，沿用 [GPL-3.0 许可证](LICENSE)。项目仓库：[wanqiua/nekoray](https://github.com/wanqiua/nekoray)。
 
-当前版本：**[0.2](https://github.com/wanqiua/nekoray/releases/tag/v0.2)**。内置 **[wanqiua/Xray-core](https://github.com/wanqiua/Xray-core) 26.3.27-matsuri.1** 和 **sing-box 1.14.0**。
+当前版本：**[0.3](https://github.com/wanqiua/nekoray/releases/tag/v0.3)**。内置 **[wanqiua/Xray-core](https://github.com/wanqiua/Xray-core) 26.3.27-matsuri.1** 和 **sing-box 1.14.0**。
 
-2026-09-29 修订：已修复 URL 批测临时失败误判和 Xray REALITY 自动指纹兼容问题，版本号继续使用 **0.2**。请重新下载下方更新后的便携包。
+2026-11-22 修订：发布 **0.3**，加入便携版自动更新、下方面板收起和连接列表空态说明。
 
 ## 下载与使用
 
-- [Windows x64 便携包](https://github.com/wanqiua/nekoray/releases/download/v0.2/NekoRay_BY_WanQiu-0.2-windows-x64.zip)
-- [对应源码包](https://github.com/wanqiua/nekoray/releases/download/v0.2/NekoRay_BY_WanQiu-0.2-windows-x64-source.zip)
-- [SHA-256 校验文件](https://github.com/wanqiua/nekoray/releases/download/v0.2/NekoRay_BY_WanQiu-0.2-windows-x64.sha256)
+- [Windows x64 便携包](https://github.com/wanqiua/nekoray/releases/download/v0.3/NekoRay_BY_WanQiu-0.3-windows-x64.zip)
+- [对应源码包](https://github.com/wanqiua/nekoray/releases/download/v0.3/NekoRay_BY_WanQiu-0.3-windows-x64-source.zip)
+- [SHA-256 校验文件](https://github.com/wanqiua/nekoray/releases/download/v0.3/NekoRay_BY_WanQiu-0.3-windows-x64.sha256)
 
 解压整个文件夹后运行 `NekoRay_BY_WanQiu.exe`。包内包含 Qt、TLS 和 VC++ 运行库，配置保存在程序目录的 `config` 文件夹。支持 Windows 10/11 x64，实际验收环境为 Windows 11。
 
-升级时先退出旧版，备份并复制旧版 `config` 文件夹到新目录。旧配置目录及内核程序名继续兼容，无需重新导入节点和订阅。详见[便携版使用说明](docs/Portable_Windows.md)。
+点击“更新”可下载仓库最新稳定版；退出后自动备份程序目录、覆盖程序文件并重启，`config` 保持原样。手动升级也可解压新包覆盖旧目录。详见[便携版使用说明](docs/Portable_Windows.md)。
+
+## 0.3 的变化
+
+- 移除推广按钮；日志和连接面板可从标签栏右侧收起并恢复原高度。
+- 连接列表显示未启用统计、当前没有连接或 sing-box 后端暂不支持列表的原因。
+- Windows x64 自动更新只使用本仓库最新稳定发行包，更新前创建同级时间戳备份并保留 `config`。
+- 详细变更见 [0.3 发行说明](docs/Release_0.3.md)。
 
 ## 0.2 的变化
 

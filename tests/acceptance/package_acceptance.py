@@ -25,7 +25,7 @@ XRAY_REVISION = "e9639bd461dcff1c91e26a71a8752fa42d51268d"
 PRODUCT_NAME = "NekoRay_BY_WanQiu"
 GUI_FILENAME = PRODUCT_NAME + ".exe"
 REQUIRED_FILES = {
-    "nekoray.exe", "nekoray_core.exe", "nekobox_core.exe", "core-versions.json",
+    "nekoray.exe", "nekoray_core.exe", "nekobox_core.exe", "updater.exe", "core-versions.json",
     "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll", "Qt6Network.dll", "Qt6Svg.dll",
     "platforms/qwindows.dll", "tls/qopensslbackend.dll", "libcrypto-3-x64.dll", "libssl-3-x64.dll",
     "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "qt.conf", "LICENSE", "README.md",
@@ -36,6 +36,9 @@ REQUIRED_FILES = {
 REQUIRED_SOURCE_FILES = {
     "BUILD-SOURCE.json", "CMakeLists.txt", "libs/package_windows.ps1", "libs/package_source_inventory.ps1",
     "libs/prepare_package_notices.ps1",
+    "docs/Release_0.3.md", "go/cmd/updater/main.go", "go/cmd/updater/updater.go",
+    "go/cmd/updater/portable_update.go", "go/cmd/updater/portable_update_test.go",
+    "go/cmd/updater/wait_windows.go", "go/cmd/updater/wait_other.go",
     "fmt/AnyTLSBean.cpp", "fmt/AnyTLSBean.hpp", "fmt/SnellBean.cpp", "fmt/SnellBean.hpp", "fmt/QUICBean.hpp",
     "fmt/AbstractBean.cpp", "fmt/includes.h", "fmt/Bean2CoreObj_box.cpp", "fmt/Bean2CoreObj_ray.cpp",
     "fmt/Bean2External.cpp", "fmt/Bean2Link.cpp", "fmt/Link2Bean.cpp",
@@ -208,7 +211,7 @@ def verify_archive(archive: Path, destination: Path, require_source: bool = True
             parts = name.split("/")
             if (parts[0].casefold() in {"config", "profiles", "groups", "routes", "routes_box", "build", "tests"} or
                 name.lower().endswith((".pdb", ".log")) or
-                Path(name).name.lower() in {"updater.exe", "qt6test.dll", "package_smoke.exe", "nekoray_package_probe.exe", "nekoray_package_smoke.exe"} or
+                Path(name).name.lower() in {"qt6test.dll", "package_smoke.exe", "nekoray_package_probe.exe", "nekoray_package_smoke.exe"} or
                 Path(name).name.lower().endswith("_tests.exe")):
                 raise ValueError("Development or user configuration data was packaged")
             info = entries[name]

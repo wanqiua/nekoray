@@ -1,10 +1,16 @@
-# NekoRay_BY_WanQiu 0.2
+# NekoRay_BY_WanQiu 0.3
 
 适用系统：Windows 10/11 x64，实际验收环境为 Windows 11。
 
 解压整个文件夹后运行 **NekoRay_BY_WanQiu.exe**。首次启动选择默认优先内核，之后选中节点即可点击“自动 / Xray / sing-box”。自动模式在右侧按钮显示目标内核；不支持的选项可悬停查看原因。配置保存在程序目录的 `config` 文件夹。
 
 内置 **wanqiua Xray 26.3.27-matsuri.1**、**sing-box 1.14.0**、Qt、TLS 和 VC++ 运行库。Xray 保留 `rc4-md5`、旧传输、内置 SIP003 插件和原有 `allowInsecure` 设置；支持界面的 HTTPUpgrade 和自定义配置中的 XHTTP。
+
+## 0.3 的变化
+
+- 更新按钮检查本仓库最新稳定版，下载 Windows x64 便携包后自动退出、备份旧程序目录、覆盖程序文件并重启。用户配置目录 `config` 不会被替换；备份保存在安装目录的同级 `.backup-时间` 目录中。
+- “日志 / 连接”标签栏右侧按钮可收起面板，再次点击恢复原高度。
+- 连接列表空白时会说明统计开关状态、无活动连接，或 sing-box 当前不支持连接枚举。
 
 ## 0.2 的变化
 
@@ -39,10 +45,10 @@
 
 Hysteria2 的证书 SHA-256 功能由随包 `nekobox_core.exe` 实现；官方 sing-box 没有等价的证书 DER 指纹字段，不要将该扩展替换成公钥指纹。外置 Hysteria2 使用原生 `pinSHA256` 参数。
 
-GeoIP / Geosite 数据来自原上游便携包，旧上游自动更新已禁用。回退时使用原安装与配置备份，旧版不认识部分新增协议。
+GeoIP / Geosite 数据来自原上游便携包。自动更新只从 `wanqiua/nekoray` 获取稳定发行版，不会替换成上游 NekoRay。旧版不认识部分新增协议。
 
 ## 文件与说明
 
 `core-versions.json` 记录产品版本、内核来源与哈希；`package-manifest.json` 记录整个便携包。配套 `*-source.zip` 包含对应源码及固定子模块。
 
-构建方法、功能范围及系统模式说明见 `docs`。项目许可证见 `LICENSE`，第三方声明见 `licenses`。上游 GUI 基线 3.26 仅表示代码来源，当前产品版本为 0.2。
+构建方法、功能范围及系统模式说明见 `docs`。项目许可证见 `LICENSE`，第三方声明见 `licenses`。上游 GUI 基线 3.26 仅表示代码来源，当前产品版本为 0.3。

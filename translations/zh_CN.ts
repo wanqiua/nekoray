@@ -1226,8 +1226,64 @@ This needs to be run NekoBox with administrator privileges.</source>
         <translation>服务器</translation>
     </message>
     <message>
-        <source>Ads</source>
-        <translation>推广</translation>
+        <source>Hide log and connection panel</source>
+        <translation>收起日志和连接面板</translation>
+    </message>
+    <message>
+        <source>Show log and connection panel</source>
+        <translation>展开日志和连接面板</translation>
+    </message>
+    <message>
+        <source>Connection statistics are disabled. Enable them in Preferences &gt; Basic Settings.</source>
+        <translation>连接统计尚未启用，请到“首选项 &gt; 基本设置”中开启。</translation>
+    </message>
+    <message>
+        <source>Connection listing is not available with sing-box yet.</source>
+        <translation>当前 sing-box 内核暂不支持显示连接列表。</translation>
+    </message>
+    <message>
+        <source>No active connections.</source>
+        <translation>当前没有活动连接。</translation>
+    </message>
+    <message>
+        <source>Could not check the latest release: %1</source>
+        <translation>无法检查最新版本：%1</translation>
+    </message>
+    <message>
+        <source>GitHub returned invalid latest-release information.</source>
+        <translation>GitHub 返回的最新版本信息无效。</translation>
+    </message>
+    <message>
+        <source>You are using the latest version.</source>
+        <translation>当前已是最新版本。</translation>
+    </message>
+    <message>
+        <source>The latest release has no Windows x64 portable package.</source>
+        <translation>最新发行版没有 Windows x64 便携包。</translation>
+    </message>
+    <message>
+        <source>Downloading the latest portable version…</source>
+        <translation>正在下载最新便携版…</translation>
+    </message>
+    <message>
+        <source>Cannot write the update package: %1</source>
+        <translation>无法写入更新包：%1</translation>
+    </message>
+    <message>
+        <source>Download failed: %1</source>
+        <translation>下载失败：%1</translation>
+    </message>
+    <message>
+        <source>Could not save the downloaded package.</source>
+        <translation>无法保存下载的更新包。</translation>
+    </message>
+    <message>
+        <source>The update helper is missing. Reinstall using the portable package.</source>
+        <translation>更新辅助程序缺失，请使用完整便携包重新安装。</translation>
+    </message>
+    <message>
+        <source>The update helper could not be started. The downloaded package is still available at %1.</source>
+        <translation>无法启动更新辅助程序，下载包保存在：%1</translation>
     </message>
     <message>
         <source>Type</source>

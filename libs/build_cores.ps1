@@ -69,6 +69,24 @@ try {
             }
         } finally { Pop-Location }
     }
+    if ($TargetOS -eq 'windows' -and $TargetArch -eq 'amd64') {
+        Push-Location (Join-Path $projectRoot 'go/cmd/updater')
+        try {
+            $env:GOOS = 'windows'
+            $env:GOARCH = 'amd64'
+            $env:GOTOOLCHAIN = 'go1.26.4'
+            if ($Test) {
+                Write-Host 'Testing portable updater'
+                & go test -count=1 ./...
+                if ($LASTEXITCODE -ne 0) { throw 'Updater tests failed' }
+            } else {
+                $updaterOutput = Join-Path $destination 'updater.exe'
+                Write-Host 'Building portable updater'
+                & go build -mod=readonly -trimpath -ldflags '-w -s' -o $updaterOutput .
+                if ($LASTEXITCODE -ne 0) { throw 'Updater build failed' }
+            }
+        } finally { Pop-Location }
+    }
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $destination 'core-versions.json') -Encoding utf8
     Write-Host "Cores built in $destination"
 } finally {
