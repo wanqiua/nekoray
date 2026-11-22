@@ -50,7 +50,7 @@ func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (*gen.ErrorRe
 		out.Error = "instance already started"
 		return out, nil
 	}
-	i, err := NewBoxInstance([]byte(in.CoreConfig), in.StatsOutbounds)
+	i, err := newBoxInstance([]byte(in.CoreConfig), in.StatsOutbounds, in.EnableNekorayConnections)
 	if err != nil {
 		out.Error = err.Error()
 	} else if err = ctx.Err(); err != nil {
@@ -149,7 +149,11 @@ func (s *server) QueryStats(ctx context.Context, in *gen.QueryStatsReq) (*gen.Qu
 }
 
 func (s *server) ListConnections(ctx context.Context, in *gen.EmptyReq) (*gen.ListConnectionsResp, error) {
-	// The 3.26 sing-box backend did not expose individual connections here.
+	instanceMu.RLock()
+	defer instanceMu.RUnlock()
+	if instance != nil && instance.connections != nil {
+		return &gen.ListConnectionsResp{NekorayConnectionsJson: instance.connections.snapshot()}, nil
+	}
 	return &gen.ListConnectionsResp{NekorayConnectionsJson: "[]"}, nil
 }
 

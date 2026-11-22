@@ -2,24 +2,33 @@
 
 基于 [NekoRay](https://github.com/MatsuriDayo/nekoray) 的双内核 Windows 便携版，沿用 [GPL-3.0 许可证](LICENSE)。项目仓库：[wanqiua/nekoray](https://github.com/wanqiua/nekoray)。
 
-当前版本：**[0.3](https://github.com/wanqiua/nekoray/releases/tag/v0.3)**。内置 **[wanqiua/Xray-core](https://github.com/wanqiua/Xray-core) 26.3.27-matsuri.1** 和 **sing-box 1.14.0**。
+当前版本：**[0.35](https://github.com/wanqiua/nekoray/releases/tag/v0.35)**。内置 **[wanqiua/Xray-core](https://github.com/wanqiua/Xray-core) 26.3.27-matsuri.1** 和 **sing-box 1.14.0**。
 
-2026-11-22 修订：发布 **0.3**，加入便携版自动更新、下方面板收起和连接列表空态说明。
+2026-11-22 修订：版本更新为 **0.35**，修复 sing-box 连接列表，并改用面板右上角的简约面板开关与轻量标签栏。
 
 ## 下载与使用
 
-- [Windows x64 便携包](https://github.com/wanqiua/nekoray/releases/download/v0.3/NekoRay_BY_WanQiu-0.3-windows-x64.zip)
-- [对应源码包](https://github.com/wanqiua/nekoray/releases/download/v0.3/NekoRay_BY_WanQiu-0.3-windows-x64-source.zip)
-- [SHA-256 校验文件](https://github.com/wanqiua/nekoray/releases/download/v0.3/NekoRay_BY_WanQiu-0.3-windows-x64.sha256)
+- [已发布稳定版及下载附件](https://github.com/wanqiua/nekoray/releases/latest)
+- [Windows x64 便携包](https://github.com/wanqiua/nekoray/releases/download/v0.35/NekoRay_BY_WanQiu-0.35-windows-x64.zip)
+- [对应源码包](https://github.com/wanqiua/nekoray/releases/download/v0.35/NekoRay_BY_WanQiu-0.35-windows-x64-source.zip)
+- [SHA-256 校验文件](https://github.com/wanqiua/nekoray/releases/download/v0.35/NekoRay_BY_WanQiu-0.35-windows-x64.sha256)
 
 解压整个文件夹后运行 `NekoRay_BY_WanQiu.exe`。包内包含 Qt、TLS 和 VC++ 运行库，配置保存在程序目录的 `config` 文件夹。支持 Windows 10/11 x64，实际验收环境为 Windows 11。
 
 点击“更新”可下载仓库最新稳定版；退出后自动备份程序目录、覆盖程序文件并重启，`config` 保持原样。手动升级也可解压新包覆盖旧目录。详见[便携版使用说明](docs/Portable_Windows.md)。
 
+## 0.35 的变化
+
+- 接通 sing-box 原生路由跟踪接口，显示 TCP / UDP 活动连接及最近 512 条关闭记录，不需要开放额外的 HTTP 控制端口。
+- 两个内核均需在“首选项 > 基本设置”中启用连接统计并重新连接节点。
+- 下方面板右上角使用 20px 面板开关图标，透明无边框，悬停时显示浅灰底；日志 / 连接标签统一为轻量样式。收起后保留标签栏和展开入口，展开时恢复原高度。
+- 程序版本、内核产品标识和便携包名称同步为 0.35；已有 0.3 发行包保持原样。
+- 详细变更见 [0.35 发行说明](docs/Release_0.35.md)。
+
 ## 0.3 的变化
 
 - 移除推广按钮；日志和连接面板可从标签栏右侧收起并恢复原高度。
-- 连接列表显示未启用统计、当前没有连接或 sing-box 后端暂不支持列表的原因。
+- 连接列表显示未启用统计或当前没有连接记录的原因。
 - Windows x64 自动更新只使用本仓库最新稳定发行包，更新前创建同级时间戳备份并保留 `config`。
 - 详细变更见 [0.3 发行说明](docs/Release_0.3.md)。
 

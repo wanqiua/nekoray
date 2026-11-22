@@ -54,6 +54,20 @@
 #include <QFileInfo>
 #include <QStyle>
 #include <QToolButton>
+#include <QStackedWidget>
+#include <QHBoxLayout>
+#include <QPainter>
+
+static QIcon LowerPaneIcon(const QPalette &palette) {
+    auto pixmap = Icon::GetMaterialIcon("panel-bottom");
+    auto color = palette.color(QPalette::WindowText);
+    color.setAlphaF(0.65);
+    QPainter painter(&pixmap);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(pixmap.rect(), color);
+    painter.end();
+    return QIcon(pixmap);
+}
 
 void UI_InitMainWindow() {
     mainwindow = new MainWindow;
@@ -123,28 +137,69 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     connect(ui->toolButton_update, &QToolButton::clicked, this, [=] { CheckUpdate(); });
 
     // Setup log UI
-    ui->splitter->restoreState(DecodeB64IfValid(NekoGui::dataStore->splitter_state));
-    expandedSplitterState = ui->splitter->saveState();
-    auto lowerPaneToggle = new QToolButton(ui->down_tab);
+    const bool restoredSplitterState = ui->splitter->restoreState(DecodeB64IfValid(NekoGui::dataStore->splitter_state));
+    const auto splitterSizes = ui->splitter->sizes();
+    lowerPaneCollapsed = restoredSplitterState && splitterSizes.size() > 1 && splitterSizes.last() == 0;
+    ui->splitter->setCollapsible(1, false);
+    if (!lowerPaneCollapsed) expandedSplitterState = ui->splitter->saveState();
+    auto lowerPaneCorner = new QWidget(ui->down_tab);
+    lowerPaneCorner->setFixedSize(44, 34);
+    auto lowerPaneCornerLayout = new QHBoxLayout(lowerPaneCorner);
+    lowerPaneCornerLayout->setContentsMargins(0, 1, 0, 1);
+    auto lowerPaneToggle = new QToolButton(lowerPaneCorner);
+    lowerPaneToggle->setObjectName("lowerPaneToggle");
+    lowerPaneToggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    lowerPaneToggle->setFixedSize(44, 32);
+    lowerPaneToggle->setIconSize(QSize(20, 20));
     lowerPaneToggle->setAutoRaise(true);
-    lowerPaneToggle->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
-    lowerPaneToggle->setToolTip(tr("Hide log and connection panel"));
-    lowerPaneToggle->setAccessibleName(lowerPaneToggle->toolTip());
-    ui->down_tab->setCornerWidget(lowerPaneToggle, Qt::TopRightCorner);
+    lowerPaneToggle->setCheckable(true);
+    lowerPaneToggle->setFocusPolicy(Qt::TabFocus);
+    lowerPaneToggle->setStyleSheet(
+        "QToolButton#lowerPaneToggle { border: none; border-radius: 4px; padding: 0; background: transparent; }"
+        "QToolButton#lowerPaneToggle:hover { background: palette(midlight); }"
+        "QToolButton#lowerPaneToggle:pressed { background: palette(mid); }"
+        "QToolButton#lowerPaneToggle:focus { border: 1px solid palette(highlight); }");
+    lowerPaneToggle->setIcon(LowerPaneIcon(lowerPaneToggle->palette()));
+    lowerPaneToggle->installEventFilter(this);
+    ui->down_tab->tabBar()->setMinimumHeight(lowerPaneToggle->height() + 2);
+    ui->down_tab->setStyleSheet("QTabWidget#down_tab::pane { border: none; }");
+    ui->down_tab->tabBar()->setStyleSheet(
+        "QTabBar::tab { height: 30px; padding: 0 9px; margin: 0; border: none;"
+        " border-bottom: 2px solid transparent; background: transparent; color: palette(window-text); }"
+        "QTabBar::tab:selected { border-bottom-color: palette(highlight); }");
+    lowerPaneCornerLayout->addWidget(lowerPaneToggle);
+    ui->down_tab->setCornerWidget(lowerPaneCorner, Qt::TopRightCorner);
+    ui->aaaaaaaaaaaa->setContentsMargins(0, 0, 0, 0);
+    const auto lowerPaneStack = ui->down_tab->findChild<QStackedWidget *>();
+    const auto lowerPaneHeight = qMax(ui->down_tab->tabBar()->sizeHint().height(), ui->down_tab->tabBar()->minimumHeight()) + 2;
+    const auto updateLowerPaneToggle = [=](bool collapsed) {
+        lowerPaneStack->setVisible(!collapsed);
+        ui->down_tab->setMaximumHeight(collapsed ? lowerPaneHeight : QWIDGETSIZE_MAX);
+        ui->splitter->widget(1)->setMaximumHeight(collapsed ? lowerPaneHeight : QWIDGETSIZE_MAX);
+        lowerPaneToggle->setChecked(!collapsed);
+        lowerPaneToggle->setToolTip(tr(collapsed ? "Show log and connection panel" : "Hide log and connection panel"));
+        lowerPaneToggle->setAccessibleName(lowerPaneToggle->toolTip());
+    };
+    updateLowerPaneToggle(lowerPaneCollapsed);
+    if (lowerPaneCollapsed) ui->splitter->setSizes({ui->splitter->height() - lowerPaneHeight, lowerPaneHeight});
     connect(lowerPaneToggle, &QToolButton::clicked, this, [=] {
         if (lowerPaneCollapsed) {
-            ui->splitter->restoreState(expandedSplitterState);
             lowerPaneCollapsed = false;
-            lowerPaneToggle->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
-            lowerPaneToggle->setToolTip(tr("Hide log and connection panel"));
+            updateLowerPaneToggle(false);
+            if (!expandedSplitterState.isEmpty()) {
+                ui->splitter->restoreState(expandedSplitterState);
+            } else {
+                const auto splitterHeight = ui->splitter->height();
+                const auto lowerPaneHeight = splitterHeight / 3;
+                ui->splitter->setSizes({splitterHeight - lowerPaneHeight, lowerPaneHeight});
+                expandedSplitterState = ui->splitter->saveState();
+            }
         } else {
             expandedSplitterState = ui->splitter->saveState();
-            ui->splitter->setSizes({ui->splitter->height(), 0});
             lowerPaneCollapsed = true;
-            lowerPaneToggle->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
-            lowerPaneToggle->setToolTip(tr("Show log and connection panel"));
+            updateLowerPaneToggle(true);
+            ui->splitter->setSizes({ui->splitter->height() - lowerPaneHeight, lowerPaneHeight});
         }
-        lowerPaneToggle->setAccessibleName(lowerPaneToggle->toolTip());
     });
     connectionEmptyLabel = new QLabel(ui->tab_2);
     connectionEmptyLabel->setAlignment(Qt::AlignCenter);
@@ -1698,6 +1753,11 @@ void MainWindow::on_masterLogBrowser_customContextMenuRequested(const QPoint &po
 // eventFilter
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
+    if (event->type() == QEvent::PaletteChange && obj->objectName() == "lowerPaneToggle") {
+        if (auto toggle = qobject_cast<QToolButton *>(obj)) {
+            toggle->setIcon(LowerPaneIcon(toggle->palette()));
+        }
+    }
     if (event->type() == QEvent::MouseButtonPress) {
         auto mouseEvent = dynamic_cast<QMouseEvent *>(event);
         if (obj == ui->label_running && mouseEvent->button() == Qt::LeftButton && running != nullptr) {
@@ -1737,10 +1797,8 @@ void MainWindow::refresh_connection_list(const QJsonArray &arr) {
         }
         if (!NekoGui::dataStore->connection_statistics) {
             connectionEmptyLabel->setText(tr("Connection statistics are disabled. Enable them in Preferences > Basic Settings."));
-        } else if (active_core() == NekoGui::CoreType::SING_BOX) {
-            connectionEmptyLabel->setText(tr("Connection listing is not available with sing-box yet."));
         } else {
-            connectionEmptyLabel->setText(tr("No active connections."));
+            connectionEmptyLabel->setText(tr("No connections."));
         }
         connectionEmptyLabel->show();
     };

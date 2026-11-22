@@ -20,12 +20,13 @@ import (
 
 type BoxInstance struct {
 	*box.Box
-	stats      *v2rayapi.StatsService
-	cancel     context.CancelFunc
-	closeOnce  sync.Once
-	closeError error
-	closed     atomic.Bool
-	startedAt  time.Time
+	stats       *v2rayapi.StatsService
+	connections *connectionRegistry
+	cancel      context.CancelFunc
+	closeOnce   sync.Once
+	closeError  error
+	closed      atomic.Bool
+	startedAt   time.Time
 }
 
 func boxOptions(config []byte) (context.Context, context.CancelFunc, option.Options, error) {
@@ -50,6 +51,10 @@ func boxOptionsContext(parent context.Context, config []byte) (context.Context, 
 }
 
 func NewBoxInstance(config []byte, statsOutbounds []string) (*BoxInstance, error) {
+	return newBoxInstance(config, statsOutbounds, false)
+}
+
+func newBoxInstance(config []byte, statsOutbounds []string, trackConnections bool) (*BoxInstance, error) {
 	ctx, cancel, options, err := boxOptions(config)
 	if err != nil {
 		cancel()
@@ -61,6 +66,10 @@ func NewBoxInstance(config []byte, statsOutbounds []string) (*BoxInstance, error
 		return nil, err
 	}
 	i := &BoxInstance{Box: b, cancel: cancel}
+	if trackConnections {
+		i.connections = newConnectionRegistry(b.Outbound())
+		b.Router().AppendTracker(i.connections)
+	}
 	// Upstream retains the runtime switch, but removed its JSON field. Restore
 	// it only for the sniff actions synthesized from legacy inbound options.
 	rules := b.Router().Rules()
@@ -88,6 +97,9 @@ func NewBoxInstance(config []byte, statsOutbounds []string) (*BoxInstance, error
 func (i *BoxInstance) Close() error {
 	i.closeOnce.Do(func() {
 		i.closed.Store(true)
+		if i.connections != nil {
+			i.connections.close()
+		}
 		i.cancel()
 		i.closeError = i.Box.Close()
 	})

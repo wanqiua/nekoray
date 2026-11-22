@@ -29,6 +29,12 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QTranslator>
+#include <QToolButton>
+#include <QStackedWidget>
+#include <QSplitter>
+#include <QNetworkAccessManager>
+#include <QNetworkProxy>
+#include <QNetworkReply>
 #include <future>
 
 #include "ui/mainwindow.h"
@@ -250,6 +256,141 @@ private slots:
         window->refresh_groups();
         NekoGui::dataStore->Save();
         if (systemAcceptance) qInfo("System acceptance cleanup: complete");
+    }
+
+    void lowerPanelControlPreservesRestoreEntry() {
+        auto tabs = child<QTabWidget>(window, "down_tab");
+        auto toggle = child<QToolButton>(window, "lowerPaneToggle");
+        auto splitter = child<QSplitter>(window, "splitter");
+        auto stack = tabs->findChild<QStackedWidget *>();
+        QVERIFY(stack != nullptr);
+        QCOMPARE(tabs->cornerWidget(Qt::TopRightCorner), toggle->parentWidget());
+        QCOMPARE(toggle->iconSize(), QSize(20, 20));
+        QCOMPARE(toggle->size(), QSize(44, 32));
+        QVERIFY(toggle->text().isEmpty());
+        QCOMPARE(toggle->toolButtonStyle(), Qt::ToolButtonIconOnly);
+        QVERIFY(toggle->autoRaise());
+        QVERIFY(toggle->isCheckable());
+        QVERIFY(toggle->styleSheet().contains("border: none"));
+        QVERIFY(toggle->styleSheet().contains("background: transparent"));
+        QVERIFY(tabs->tabBar()->styleSheet().contains("border-bottom-color: palette(highlight)"));
+        if (window->lowerPaneCollapsed) toggle->click();
+        QVERIFY(toggle->isChecked());
+        const auto originalPalette = toggle->palette();
+        const auto originalIcon = toggle->icon().cacheKey();
+        auto darkPalette = originalPalette;
+        darkPalette.setColor(QPalette::WindowText, QColor(240, 240, 240));
+        toggle->setPalette(darkPalette);
+        QVERIFY(toggle->icon().cacheKey() != originalIcon);
+        const auto darkImage = toggle->icon().pixmap(toggle->iconSize()).toImage();
+        bool lightStroke = false;
+        for (int row = 0; row < darkImage.height(); row++) {
+            for (int column = 0; column < darkImage.width(); column++) {
+                const auto pixel = darkImage.pixelColor(column, row);
+                if (pixel.alpha() > 100 && pixel.lightness() > 180) lightStroke = true;
+            }
+        }
+        QVERIFY(lightStroke);
+        toggle->setPalette(originalPalette);
+        const auto expandedIcon = toggle->icon().cacheKey();
+        const auto originalSizes = splitter->sizes();
+        const int originalTab = tabs->currentIndex();
+        auto restore = qScopeGuard([=] {
+            if (window->lowerPaneCollapsed) toggle->click();
+            splitter->setSizes(originalSizes);
+            tabs->setCurrentIndex(originalTab);
+        });
+        splitter->setSizes({300, 240});
+        QTest::qWait(50);
+        QVERIFY2(tabs->rect().contains(QRect(toggle->mapTo(tabs, QPoint()), toggle->size())),
+                 qPrintable(QString("tabs %1x%2, button at %3,%4 size %5x%6")
+                     .arg(tabs->width()).arg(tabs->height()).arg(toggle->mapTo(tabs, QPoint()).x())
+                     .arg(toggle->mapTo(tabs, QPoint()).y()).arg(toggle->width()).arg(toggle->height())));
+        QVERIFY(toggle->parentWidget()->rect().contains(toggle->geometry()));
+        const auto expandedSizes = splitter->sizes();
+        tabs->setCurrentIndex(1);
+        const auto screenshots = qEnvironmentVariable("NEKORAY_TEST_SCREENSHOT_DIR");
+        if (!screenshots.isEmpty()) {
+            QVERIFY(QDir().mkpath(screenshots));
+            QVERIFY(window->grab().save(screenshots + "/panel-expanded.png"));
+            QTest::mouseMove(toggle, toggle->rect().center());
+            QTest::qWait(50);
+            QVERIFY(window->grab().save(screenshots + "/panel-hover.png"));
+            QTest::mouseMove(window, QPoint(1, 1));
+        }
+        toggle->click();
+        QVERIFY(window->lowerPaneCollapsed);
+        QVERIFY(!toggle->isChecked());
+        QCOMPARE(toggle->icon().cacheKey(), expandedIcon);
+        QTRY_VERIFY(stack->isHidden());
+        QVERIFY(tabs->isVisible());
+        QVERIFY(tabs->tabBar()->isVisible());
+        QVERIFY(toggle->isVisible());
+        QVERIFY(tabs->rect().contains(QRect(toggle->mapTo(tabs, QPoint()), toggle->size())));
+        QVERIFY(toggle->parentWidget()->rect().contains(toggle->geometry()));
+        QVERIFY(splitter->sizes().last() > 0 && splitter->sizes().last() <= 40);
+        QVERIFY(splitter->sizes().first() > expandedSizes.first());
+        tabs->setCurrentIndex(0);
+        QVERIFY(stack->isHidden());
+        window->on_commitDataRequest();
+        QVERIFY(DecodeB64IfValid(NekoGui::dataStore->splitter_state) == window->expandedSplitterState);
+        if (!screenshots.isEmpty()) QVERIFY(window->grab().save(screenshots + "/panel-collapsed.png"));
+        toggle->click();
+        QVERIFY(!window->lowerPaneCollapsed);
+        QVERIFY(toggle->isChecked());
+        QTRY_VERIFY(stack->isVisible());
+        QVERIFY(qAbs(splitter->sizes().last() - expandedSizes.last()) <= 2);
+    }
+
+    void connectionListEmptyStates() {
+        QScopedValueRollback<bool> statistics(NekoGui::dataStore->connection_statistics, true);
+        window->refresh_connection_list(QJsonArray{});
+        QCOMPARE(window->connectionEmptyLabel->text(), window->tr("No connections."));
+        QVERIFY(!window->connectionEmptyLabel->isHidden());
+        NekoGui::dataStore->connection_statistics = false;
+        window->refresh_connection_list(QJsonArray{});
+        QCOMPARE(window->connectionEmptyLabel->text(), window->tr("Connection statistics are disabled. Enable them in Preferences > Basic Settings."));
+        DialogBasicSettings settings(window);
+        QVERIFY(child<QGroupBox>(&settings, "connection_statistics_box")->isEnabled());
+    }
+
+    void singBoxConnectionListThroughRuntime() {
+        QScopedValueRollback<bool> statistics(NekoGui::dataStore->connection_statistics, true);
+        const auto ignoredTags = NekoGui::dataStore->ignoreConnTag;
+        NekoGui::dataStore->ignoreConnTag.clear();
+        auto restoreTags = qScopeGuard([=] { NekoGui::dataStore->ignoreConnTag = ignoredTags; });
+        FixtureServer proxy(0, 200, "connection-list");
+        FixtureServer target(0, 200, "connection-list");
+        auto profile = addNode(proxy.serverPort());
+        profile->core_preference = 2;
+        window->neko_start(profile->id);
+        QTRY_VERIFY_WITH_TIMEOUT(window->core_session && !window->core_switch_busy && window->active_core() == 1, 12000);
+        QNetworkAccessManager network;
+        network.setProxy(QNetworkProxy(QNetworkProxy::Socks5Proxy, "127.0.0.1", NekoGui::dataStore->inbound_socks_port));
+        auto reply = network.get(QNetworkRequest(QUrl(target.url())));
+        QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 8000);
+        QCOMPARE(reply->error(), QNetworkReply::NoError);
+        QCOMPARE(reply->readAll(), QByteArray("connection-list"));
+        reply->deleteLater();
+        const auto client = window->core_session->instance->client;
+        QJsonArray records;
+        QTRY_VERIFY_WITH_TIMEOUT(([&] {
+            records = QJsonDocument::fromJson(QByteArray::fromStdString(client->ListConnections())).array();
+            return !records.isEmpty();
+        })(), 3000);
+        QVERIFY(records[0].toObject()["Dest"].toString().startsWith("tcp:127.0.0.1:"));
+        window->refresh_connection_list(records);
+        QVERIFY(child<QTableWidget>(window, "tableWidget_conn")->rowCount() > 0);
+        QVERIFY(window->connectionEmptyLabel->isHidden());
+        const auto screenshots = qEnvironmentVariable("NEKORAY_TEST_SCREENSHOT_DIR");
+        if (!screenshots.isEmpty()) {
+            child<QTabWidget>(window, "down_tab")->setCurrentIndex(1);
+            QVERIFY(QDir().mkpath(screenshots));
+            QVERIFY(window->grab().save(screenshots + "/connections-runtime.png"));
+        }
+        window->set_core_preference(profile->id, 1, true);
+        QTRY_VERIFY_WITH_TIMEOUT(window->core_session && !window->core_switch_busy && window->active_core() == 0, 12000);
+        QVERIFY(QJsonDocument::fromJson(QByteArray::fromStdString(client->ListConnections())).array().isEmpty());
     }
 
     void testResultProvenance() {

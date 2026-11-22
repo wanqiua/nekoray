@@ -22,7 +22,7 @@ func legacyGUIConfig(port int) string {
 }
 
 func TestGUIProtocolLifecycle(t *testing.T) {
-	testutil.RunLifecycle(t, &server{}, legacyGUIConfig, false)
+	testutil.RunLifecycle(t, &server{}, legacyGUIConfig, true)
 }
 
 func TestModernConfigAccepted(t *testing.T) {

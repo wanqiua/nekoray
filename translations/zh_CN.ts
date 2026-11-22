@@ -1238,12 +1238,8 @@ This needs to be run NekoBox with administrator privileges.</source>
         <translation>连接统计尚未启用，请到“首选项 &gt; 基本设置”中开启。</translation>
     </message>
     <message>
-        <source>Connection listing is not available with sing-box yet.</source>
-        <translation>当前 sing-box 内核暂不支持显示连接列表。</translation>
-    </message>
-    <message>
-        <source>No active connections.</source>
-        <translation>当前没有活动连接。</translation>
+        <source>No connections.</source>
+        <translation>当前没有连接记录。</translation>
     </message>
     <message>
         <source>Could not check the latest release: %1</source>

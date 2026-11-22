@@ -102,10 +102,6 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     ui->sys_proxy_format->hide();
 #endif
 
-    // Style
-    if (IS_NEKO_BOX) {
-        ui->connection_statistics_box->setDisabled(true);
-    }
     //
     D_LOAD_BOOL(check_include_pre)
     D_LOAD_BOOL(connection_statistics)

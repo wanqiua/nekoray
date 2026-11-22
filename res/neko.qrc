@@ -11,6 +11,7 @@
         <file>icon/material/cancel.svg</file>
         <file>icon/material/history.svg</file>
         <file>icon/material/swap-vertical.svg</file>
+        <file>icon/material/panel-bottom.svg</file>
         <file>icon/material/delete.svg</file>
         <file>icon/material/swap-horizontal.svg</file>
     </qresource>
